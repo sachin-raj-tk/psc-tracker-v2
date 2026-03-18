@@ -18,7 +18,7 @@
   "devDependencies": {
     "gh-pages": "^6.0.0"
   },
-  "homepage": "https://sachin-raj-tk.github.io/psc-tracker",
+  "homepage": "https://sachin-raj-tk.github.io/psc-tracker-v2",
   "browserslist": {
     "production": [
       ">0.2%",
