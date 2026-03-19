@@ -920,8 +920,8 @@ export function SyllabusEditor({ initial, existingNames, onSave, onClose }) {
               onChange={e => updSubj(idx, "topicsText", e.target.value)}
               placeholder={"[1] Kerala History\n[2] British India\n[3] World History\nOr just: Topic without number"}
               style={{ ...inputStyle, resize: "vertical", fontFamily:"monospace", fontSize:12,
-                borderColor: errors[\`s_topics_\${idx}\`] ? T.red : T.border }} />
-            <FieldError msg={errors[\`s_topics_\${idx}\`]} />
+                borderColor: errors[`s_topics_\${idx}`] ? T.red : T.border }} />
+            <FieldError msg={errors[`s_topics_\${idx}`]} />
           </label>
         </div>
       ))}
