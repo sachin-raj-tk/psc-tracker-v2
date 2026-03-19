@@ -176,16 +176,6 @@ export function parseSyllabusDocx(rawText) {
     ?.replace(/\*\*/g, "").replace(/\\[|\\]/g, "").trim()
     || "Imported Syllabus";
 
-  // ── Subject header pattern ────────────────────────────────────────────────
-  // Matches: \### SubjectName (10 Marks, Q1-Q10, Topics 1-25)
-  // or:      \### SubjectName (10 Marks, Topics 1-25)   (no Q-range)
-  const subjectRe = /\\#\#\#\s+(.+?)\s+\((\d+)\s+Marks?(?:,\s*Q(\d+)-Q(\d+))?(?:,\s*Topics?\s+\d+-\d+)?\)/gi;
-
-  // ── Topic pattern ─────────────────────────────────────────────────────────
-  // Matches: \[3\]** Topic name text  (pandoc bold format)
-  // or:      [3] Topic name text       (plain format)
-  const topicRe  = /(?:\\[|\?\[)(\d+)(?:\\]|\])\*{0,2}\s+(.+)/g;
-
   // ── Parse in one pass ─────────────────────────────────────────────────────
   const subjects = [];
   let currentSubject = null;
@@ -264,8 +254,7 @@ export function parseTopicMapDocx(rawText) {
 
   // Pattern: **topicNo** ... **qNos** **count**
   // topicNo is a bold integer, qNos is bold (possibly comma-separated), count is bold
-  const rowRe = /\*\*(\d+)\*\*[^
-\*]+\*\*([\d,\s]+)\*\*\s+\*\*(\d+)\*\*/g;
+  const rowRe = new RegExp("\\*\\*(\\d+)\\*\\*[^\\n\\*]+\\*\\*([\\d,\\s]+)\\*\\*\\s+\\*\\*(\\d+)\\*\\*", "g");
   let match;
   while ((match = rowRe.exec(rawText)) !== null) {
     const topicNo = parseInt(match[1]);
