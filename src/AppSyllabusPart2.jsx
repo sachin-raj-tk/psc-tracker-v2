@@ -703,234 +703,250 @@ export function PaperDetail({ paper, syllabus, onEdit, onClose, onShare }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * SyllabusEditor — create or edit a syllabus with full validation.
- * Subjects have: name, maxMarks, questionRange (start/end), topics (text area).
+ * SyllabusEditor — create or edit a syllabus.
+ * Same layout as SyllabusImporter preview: per-topic rows with [N] number field
+ * and name field, subject move ↑↓ buttons, inline add/remove for both.
+ * Used for both "New Manually" and "Edit" — only the title and button label differ.
  */
 export function SyllabusEditor({ initial, existingNames, onSave, onClose }) {
-  const [name,      setName]      = useState(initial?.name || "");
+  const isEdit = !!initial;
+
+  // Build editable subjects — topics as individual objects (not a textarea string)
+  const buildSubjects = (src) => (src?.subjects || []).map(s => ({
+    id:       s.id || uid(),
+    name:     s.name || "",
+    maxMarks: s.maxMarks ?? 10,
+    qStart:   s.questionRange?.start || "",
+    qEnd:     s.questionRange?.end   || "",
+    topics:   (s.topics || []).map(t => ({
+      id:              t.id || uid(),
+      topicNo:         t.topicNo ?? "",
+      name:            t.name || "",
+      revisionCount:   t.revisionCount   || 0,
+      lastRevisedDate: t.lastRevisedDate || null,
+    })),
+  }));
+
+  const [examName,  setExamName]  = useState(initial?.name      || "");
   const [shortName, setShortName] = useState(initial?.shortName || "");
-  const [negMark,   setNegMark]   = useState(initial?.negMark ?? 0.333);
-  const [subjects,  setSubjects]  = useState(
-    initial?.subjects
-      ? initial.subjects.map(s => ({ ...s, topicsText: s.topics.map(t => t.name).join("\n") }))
-      : []
-  );
-  const [errors, setErrors]       = useState({});
+  const [negMark,   setNegMark]   = useState(String(initial?.negMark ?? 0.333));
+  const [subjects,  setSubjects]  = useState(() => buildSubjects(initial));
+  const [errors,    setErrors]    = useState({});
 
-  const totalMarks = subjects.reduce((a, s) => a + (parseInt(s.maxMarks) || 0), 0);
+  const totalMarks  = subjects.reduce((a, s) => a + (parseInt(s.maxMarks) || 0), 0);
+  const totalTopics = subjects.reduce((a, s) => a + s.topics.length, 0);
 
+  // ── Subject helpers ────────────────────────────────────────────────────────
+  const updSubj   = (i, k, v) => setSubjects(p => p.map((s, idx) => idx===i ? {...s,[k]:v} : s));
+  const delSubj   = (i)       => setSubjects(p => p.filter((_,idx) => idx!==i));
+  const moveSubj  = (i, dir)  => {
+    const a = [...subjects], to = i+dir;
+    if (to<0||to>=a.length) return;
+    [a[i],a[to]]=[a[to],a[i]]; setSubjects(a);
+  };
   const addSubject = () => setSubjects(p => [...p, {
-    id: uid(), name: "", maxMarks: 10,
-    questionRange: { start: "", end: "" },
-    topicsText: "",
+    id:uid(), name:"", maxMarks:10, qStart:"", qEnd:"", topics:[]
   }]);
 
-  const updSubj = (idx, key, val) =>
-    setSubjects(p => p.map((s, i) => i === idx ? { ...s, [key]: val } : s));
+  // ── Topic helpers ──────────────────────────────────────────────────────────
+  const updTopic = (si, ti, k, v) =>
+    setSubjects(p => p.map((s,i) => i!==si ? s : {
+      ...s, topics: s.topics.map((t,j) => j!==ti ? t : {...t,[k]:v})
+    }));
+  const delTopic   = (si, ti)  =>
+    setSubjects(p => p.map((s,i) => i!==si ? s : {
+      ...s, topics: s.topics.filter((_,j) => j!==ti)
+    }));
+  const addTopic   = (si) =>
+    setSubjects(p => p.map((s,i) => i!==si ? s : {
+      ...s, topics: [...s.topics, {id:uid(), topicNo:"", name:"", revisionCount:0, lastRevisedDate:null}]
+    }));
 
-  const updRange = (idx, field, val) =>
-    setSubjects(p => p.map((s, i) => i === idx
-      ? { ...s, questionRange: { ...s.questionRange, [field]: parseInt(val) || "" } }
-      : s));
-
-  const delSubj = (idx) => setSubjects(p => p.filter((_, i) => i !== idx));
-
-  // Validate all fields, return true if clean
-  const doValidate = () => {
+  // ── Validation ─────────────────────────────────────────────────────────────
+  const validate = () => {
     const e = {};
-    if (!name.trim() || name.trim().length < 3) e.name = "Name must be at least 3 characters";
-    if (!shortName.trim()) e.shortName = "Short name is required";
+    if (!examName.trim() || examName.trim().length < 3) e.name = "Exam name must be at least 3 characters";
+    if (!shortName.trim())       e.shortName = "Short name is required";
     if (shortName.trim().length > 20) e.shortName = "Short name must be 20 chars or less";
-    if (isNaN(negMark) || negMark < 0 || negMark > 1) e.negMark = "Negative mark must be between 0 and 1";
-    if ((existingNames || []).filter(n => n !== initial?.name).includes(name.trim()))
+    if (isNaN(negMark)||parseFloat(negMark)<0||parseFloat(negMark)>1) e.negMark = "Must be between 0 and 1";
+    if ((existingNames||[]).filter(n => n !== initial?.name).includes(examName.trim()))
       e.name = "A syllabus with this name already exists";
-    if (subjects.length === 0) e.subjects = "Add at least one subject";
-
-    subjects.forEach((s, i) => {
-      if (!s.name?.trim()) e[`s_name_${i}`] = "Subject name is required";
-      if (!s.maxMarks || parseInt(s.maxMarks) < 1) e[`s_marks_${i}`] = "Max marks must be at least 1";
-      if (s.questionRange?.start && s.questionRange?.end) {
-        if (s.questionRange.end <= s.questionRange.start)
-          e[`s_range_${i}`] = "Range end must be greater than start";
-      }
-      if (!s.topicsText?.trim()) e[`s_topics_${i}`] = "Add at least one topic";
+    if (subjects.length===0) e.subjects = "Add at least one subject";
+    subjects.forEach((s,i) => {
+      if (!s.name?.trim())              e[`sn${i}`] = "Subject name required";
+      if (!(parseInt(s.maxMarks)>=1))   e[`sm${i}`] = "Max marks required";
+      if (s.topics.length===0)          e[`st${i}`] = "Add at least one topic";
+      s.topics.forEach((t,j) => { if (!t.name?.trim()) e[`tn${i}_${j}`] = "Topic name required"; });
     });
-
-    // Check overlapping ranges
-    const ranges = subjects.map((s, i) => ({ i, ...s.questionRange }));
-    ranges.forEach((r1, a) => {
-      ranges.forEach((r2, b) => {
-        if (a >= b || !r1.start || !r2.start) return;
-        if (r1.start <= r2.end && r2.start <= r1.end)
-          e[`s_range_overlap`] = `Subjects ${a+1} and ${b+1} have overlapping question ranges`;
-      });
-    });
-
+    // Overlapping Q-ranges
+    subjects.forEach((r1,a) => subjects.forEach((r2,b) => {
+      if (a>=b || !r1.qStart || !r2.qStart) return;
+      if (parseInt(r1.qStart)<=parseInt(r2.qEnd) && parseInt(r2.qStart)<=parseInt(r1.qEnd))
+        e.overlap = `${r1.name} and ${r2.name} have overlapping Q-ranges`;
+    }));
     setErrors(e);
-    return Object.keys(e).length === 0;
+    return Object.keys(e).length===0;
   };
 
+  // ── Save ───────────────────────────────────────────────────────────────────
   const handleSave = () => {
-    if (!doValidate()) return;
-    const subs = subjects.map(s => ({
-      id: s.id,
-      name: s.name.trim(),
-      maxMarks: parseInt(s.maxMarks),
-      questionRange: {
-        start: parseInt(s.questionRange?.start) || 0,
-        end:   parseInt(s.questionRange?.end)   || 0,
-      },
-      topics: s.topicsText.split("\n").map(t => t.trim()).filter(Boolean).map((raw, ti) => {
-        // Parse optional [N] prefix: "[3] Topic name" or just "Topic name"
-        const numMatch = raw.match(/^\[(\d+)\]\s*(.+)/);
-        const topicNo  = numMatch ? parseInt(numMatch[1]) : null;
-        const name     = numMatch ? numMatch[2].trim() : raw.trim();
-        const existing = initial?.subjects?.find(os => os.id === s.id)?.topics?.[ti];
-        return {
-          id:              existing?.id || uid(),
-          topicNo:         topicNo ?? existing?.topicNo ?? null,
-          name,
-          revisionCount:   existing?.revisionCount  || 0,
-          lastRevisedDate: existing?.lastRevisedDate || null,
-        };
-      }),
-    }));
+    if (!validate()) return;
     onSave({
-      id: initial?.id || uid(),
-      name: name.trim(), shortName: shortName.trim(),
-      negMark: parseFloat(negMark), totalMarks,
-      createdAt: initial?.createdAt || Date.now(),
-      subjects: subs,
+      id:         initial?.id || uid(),
+      name:       examName.trim(),
+      shortName:  shortName.trim(),
+      negMark:    parseFloat(negMark),
+      totalMarks,
+      createdAt:  initial?.createdAt || Date.now(),
+      subjects:   subjects.map(s => ({
+        id:            s.id,
+        name:          s.name.trim(),
+        maxMarks:      parseInt(s.maxMarks),
+        questionRange: { start: parseInt(s.qStart)||0, end: parseInt(s.qEnd)||0 },
+        topics:        s.topics
+          .filter(t => t.name.trim())
+          .map(t => ({
+            id:              t.id,
+            topicNo:         parseInt(t.topicNo) || null,
+            name:            t.name.trim(),
+            revisionCount:   t.revisionCount   || 0,
+            lastRevisedDate: t.lastRevisedDate || null,
+          })),
+      })).filter(s => s.name),
     });
   };
 
   return (
-    <Modal title={initial ? "Edit Syllabus" : "New Syllabus"} onClose={onClose} wide>
-      {/* Meta */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
-        <label style={{ display: "flex", flexDirection: "column", gap: 5, gridColumn: "span 2" }}>
-          <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase" }}>Exam Name *</span>
-          <input style={{ ...inputStyle, borderColor: errors.name ? T.red : T.border }}
-            value={name} onChange={e => setName(e.target.value)} maxLength={100}
-            placeholder="e.g. Degree Level Preliminary 2025" />
-          <FieldError msg={errors.name} />
+    <Modal title={isEdit ? "Edit Syllabus" : "New Syllabus"} onClose={onClose} extraWide>
+
+      {/* ── Exam meta ── */}
+      <div style={{display:"grid", gridTemplateColumns:"2fr 1fr 1fr", gap:12, marginBottom:16}}>
+        <label style={{display:"flex", flexDirection:"column", gap:4}}>
+          <span style={{fontSize:10, color:T.text3, textTransform:"uppercase"}}>Exam Name *</span>
+          <input value={examName} onChange={e=>setExamName(e.target.value)} maxLength={100}
+            style={{...inputStyle, borderColor: errors.name ? T.red : T.border}}
+            placeholder="e.g. Degree Level Preliminary 2025"/>
+          <FieldError msg={errors.name}/>
         </label>
-        <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase" }}>Short Name *</span>
-          <input style={{ ...inputStyle, borderColor: errors.shortName ? T.red : T.border }}
-            value={shortName} onChange={e => setShortName(e.target.value)} maxLength={20}
-            placeholder="DLP 2025" />
-          <FieldError msg={errors.shortName} />
+        <label style={{display:"flex", flexDirection:"column", gap:4}}>
+          <span style={{fontSize:10, color:T.text3, textTransform:"uppercase"}}>Short Name *</span>
+          <input value={shortName} onChange={e=>setShortName(e.target.value)} maxLength={20}
+            style={{...inputStyle, borderColor: errors.shortName ? T.red : T.border}}
+            placeholder="DLP 2025"/>
+          <FieldError msg={errors.shortName}/>
         </label>
-        <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase" }}>Negative Mark / Wrong *</span>
-          <input style={{ ...inputStyle, borderColor: errors.negMark ? T.red : T.border }}
-            type="number" step="0.001" min="0" max="1"
-            value={negMark} onChange={e => setNegMark(e.target.value)} />
-          <FieldError msg={errors.negMark} />
+        <label style={{display:"flex", flexDirection:"column", gap:4}}>
+          <span style={{fontSize:10, color:T.text3, textTransform:"uppercase"}}>Neg Mark / Wrong</span>
+          <input type="number" step="0.001" min="0" max="1"
+            value={negMark} onChange={e=>setNegMark(e.target.value)}
+            style={{...inputStyle, borderColor: errors.negMark ? T.red : T.border}}/>
+          <FieldError msg={errors.negMark}/>
         </label>
-        <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: 2 }}>
-          <span style={{ fontSize: 13, color: T.text2 }}>
-            Total Marks: <strong style={{ color: totalMarks === 100 ? T.green : T.yellow, fontFamily: "monospace" }}>{totalMarks}</strong>
-            {totalMarks !== 100 && <span style={{ fontSize: 11, color: T.yellow }}> ⚠ not 100</span>}
-          </span>
-        </div>
       </div>
 
-      {errors.subjects && <div style={{ color: T.red, fontSize: 12, marginBottom: 8 }}>⚠ {errors.subjects}</div>}
-      {errors.s_range_overlap && <div style={{ color: T.yellow, fontSize: 12, marginBottom: 8 }}>⚠ {errors.s_range_overlap}</div>}
+      {/* ── Summary bar ── */}
+      <div style={{display:"flex", gap:20, padding:"8px 14px",
+        background:T.surface, borderRadius:8, marginBottom:14,
+        border:`1px solid ${T.border}`, fontSize:12, color:T.text2}}>
+        <span>{subjects.length} subject{subjects.length!==1?"s":""}</span>
+        <span>{totalTopics} topic{totalTopics!==1?"s":""}</span>
+        <span style={{color: totalMarks===100 ? T.green : T.yellow}}>
+          {totalMarks} marks {totalMarks!==100 ? "⚠ not 100" : "✓"}
+        </span>
+      </div>
 
-      <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 12 }}>Subjects</div>
+      {errors.subjects && <div style={{color:T.red,fontSize:12,marginBottom:8}}>⚠ {errors.subjects}</div>}
+      {errors.overlap  && <div style={{color:T.yellow,fontSize:12,marginBottom:8}}>⚠ {errors.overlap}</div>}
 
-      {subjects.map((s, idx) => (
-        <div key={s.id} style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: 14, marginBottom: 10 }}>
-
-          {/* Row 1: Subject name (full width) + Remove button */}
-          <div style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "flex-end" }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Subject Name *
-              </span>
-              <input
-                style={{ ...inputStyle, borderColor: errors[`s_name_${idx}`] ? T.red : T.border }}
-                value={s.name}
-                onChange={e => updSubj(idx, "name", e.target.value)}
-                placeholder="e.g. History"
-              />
-              <FieldError msg={errors[`s_name_${idx}`]} />
-            </label>
-            <button
-              onClick={() => delSubj(idx)}
-              style={{
-                ...btnGhost,
-                color: T.red, borderColor: T.red + "44",
-                padding: "9px 14px", flexShrink: 0,
-                alignSelf: errors[`s_name_${idx}`] ? "center" : "flex-end",
-                marginBottom: errors[`s_name_${idx}`] ? 18 : 0,
-              }}
-            >
-              Remove
-            </button>
+      {/* ── Subject cards ── */}
+      <div style={{maxHeight:"55vh", overflowY:"auto", paddingRight:4}}>
+        {subjects.length===0 && (
+          <div style={{textAlign:"center", padding:30, color:T.text3, fontSize:13}}>
+            No subjects yet. Add one below.
           </div>
+        )}
+        {subjects.map((s, si) => (
+          <div key={s.id} style={{border:`1px solid ${T.border}`,
+            borderRadius:8, padding:14, marginBottom:10}}>
 
-          {/* Row 2: Max Marks | Q Start | Q End — equal thirds */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Max Marks *
-              </span>
-              <input
-                style={{ ...inputStyle, textAlign: "center", borderColor: errors[`s_marks_${idx}`] ? T.red : T.border }}
-                type="number" min={1} value={s.maxMarks}
-                onChange={e => updSubj(idx, "maxMarks", e.target.value)}
-              />
-              <FieldError msg={errors[`s_marks_${idx}`]} />
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Q Range Start
-              </span>
-              <input
-                style={{ ...inputStyle, textAlign: "center" }}
-                type="number" min={1} max={100}
-                value={s.questionRange?.start || ""}
-                onChange={e => updRange(idx, "start", e.target.value)}
-                placeholder="1"
-              />
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Q Range End
-              </span>
-              <input
-                style={{ ...inputStyle, textAlign: "center", borderColor: errors[`s_range_${idx}`] ? T.red : T.border }}
-                type="number" min={1} max={100}
-                value={s.questionRange?.end || ""}
-                onChange={e => updRange(idx, "end", e.target.value)}
-                placeholder="10"
-              />
-              <FieldError msg={errors[`s_range_${idx}`]} />
-            </label>
+            {/* Subject header row */}
+            <div style={{display:"flex", gap:8, marginBottom:10, alignItems:"flex-end", flexWrap:"wrap"}}>
+              <label style={{display:"flex", flexDirection:"column", gap:4, flex:2, minWidth:140}}>
+                <span style={{fontSize:10, color:T.text3, textTransform:"uppercase"}}>Subject Name *</span>
+                <input value={s.name} onChange={e=>updSubj(si,"name",e.target.value)}
+                  style={{...inputStyle, borderColor: errors[`sn${si}`] ? T.red : T.border}}
+                  placeholder="e.g. History"/>
+                <FieldError msg={errors[`sn${si}`]}/>
+              </label>
+              <label style={{display:"flex", flexDirection:"column", gap:4, width:72}}>
+                <span style={{fontSize:10, color:T.text3, textTransform:"uppercase"}}>Marks *</span>
+                <input type="number" min={0} value={s.maxMarks}
+                  onChange={e=>updSubj(si,"maxMarks",e.target.value)}
+                  style={{...inputStyle, textAlign:"center", borderColor: errors[`sm${si}`] ? T.red : T.border}}/>
+                <FieldError msg={errors[`sm${si}`]}/>
+              </label>
+              <label style={{display:"flex", flexDirection:"column", gap:4, width:66}}>
+                <span style={{fontSize:10, color:T.text3, textTransform:"uppercase"}}>Q Start</span>
+                <input type="number" min={1} max={200} value={s.qStart}
+                  onChange={e=>updSubj(si,"qStart",e.target.value)}
+                  style={{...inputStyle, textAlign:"center"}} placeholder="1"/>
+              </label>
+              <label style={{display:"flex", flexDirection:"column", gap:4, width:66}}>
+                <span style={{fontSize:10, color:T.text3, textTransform:"uppercase"}}>Q End</span>
+                <input type="number" min={1} max={200} value={s.qEnd}
+                  onChange={e=>updSubj(si,"qEnd",e.target.value)}
+                  style={{...inputStyle, textAlign:"center"}} placeholder="10"/>
+              </label>
+              <div style={{display:"flex", gap:4, alignSelf:"center", flexShrink:0}}>
+                <button onClick={()=>moveSubj(si,-1)} style={{...btnGhost, padding:"6px 10px"}} title="Move up">↑</button>
+                <button onClick={()=>moveSubj(si,+1)} style={{...btnGhost, padding:"6px 10px"}} title="Move down">↓</button>
+                <button onClick={()=>delSubj(si)}
+                  style={{...btnGhost, color:T.red, borderColor:T.red+"44", padding:"6px 10px"}}>✕</button>
+              </div>
+            </div>
+
+            {/* Topic rows */}
+            {errors[`st${si}`] && <div style={{color:T.red,fontSize:11,marginBottom:6}}>⚠ {errors[`st${si}`]}</div>}
+            <div style={{display:"flex", flexDirection:"column", gap:4}}>
+              {s.topics.map((t, ti) => (
+                <div key={t.id} style={{display:"flex", gap:6, alignItems:"center"}}>
+                  <input type="number" min={1} value={t.topicNo || ""}
+                    onChange={e=>updTopic(si,ti,"topicNo",e.target.value)}
+                    placeholder="#"
+                    style={{...inputStyle, width:52, textAlign:"center",
+                      fontFamily:"monospace", fontSize:13, fontWeight:700,
+                      color:T.accent2, padding:"5px 4px"}}/>
+                  <input value={t.name} onChange={e=>updTopic(si,ti,"name",e.target.value)}
+                    placeholder="Topic name"
+                    style={{...inputStyle, flex:1, fontSize:12,
+                      borderColor: errors[`tn${si}_${ti}`] ? T.red : T.border}}/>
+                  <button onClick={()=>delTopic(si,ti)}
+                    style={{...btnGhost, padding:"4px 8px", color:T.red,
+                      borderColor:T.red+"33", fontSize:11, flexShrink:0}}>✕</button>
+                </div>
+              ))}
+              <button onClick={()=>addTopic(si)}
+                style={{...btnGhost, fontSize:11, padding:"4px 10px",
+                  alignSelf:"flex-start", marginTop:4}}>
+                + Add Topic
+              </button>
+            </div>
           </div>
-          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing:"0.08em" }}>
-              Topics (one per line — optionally prefix with [N] e.g. "[3] Topic name") *
-            </span>
-            <textarea rows={5} value={s.topicsText}
-              onChange={e => updSubj(idx, "topicsText", e.target.value)}
-              placeholder={"[1] Kerala History\n[2] British India\n[3] World History\nOr just: Topic without number"}
-              style={{ ...inputStyle, resize: "vertical", fontFamily:"monospace", fontSize:12,
-                borderColor: errors[`s_topics_\${idx}`] ? T.red : T.border }} />
-            <FieldError msg={errors[`s_topics_\${idx}`]} />
-          </label>
-        </div>
-      ))}
+        ))}
 
-      <button onClick={addSubject} style={{ ...btnGhost, width: "100%", marginBottom: 20 }}>+ Add Subject</button>
+        <button onClick={addSubject}
+          style={{...btnGhost, width:"100%", marginBottom:4}}>
+          + Add Subject
+        </button>
+      </div>
 
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+      {/* ── Footer ── */}
+      <div style={{display:"flex", gap:10, justifyContent:"flex-end",
+        paddingTop:14, borderTop:`1px solid ${T.border}`, marginTop:8}}>
         <button onClick={onClose} style={btnGhost}>Cancel</button>
-        <button onClick={handleSave} style={btnPrimary(T.accent)}>Save Syllabus</button>
+        <button onClick={handleSave} style={btnPrimary(T.accent)}>
+          {isEdit ? "Update Syllabus" : "Save Syllabus →"}
+        </button>
       </div>
     </Modal>
   );
