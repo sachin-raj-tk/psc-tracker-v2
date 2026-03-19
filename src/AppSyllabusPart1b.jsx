@@ -404,6 +404,10 @@ export function TopicMapImporter({ syllabus, currentOMR, onApply, onClose }) {
   const statusColor = s => s==="matched" ? T.green : s==="unmatched" ? T.yellow : T.text3;
   const statusIcon  = s => s==="matched" ? "✓" : s==="unmatched" ? "⚠" : "—";
 
+  // Filter hook — must be declared before any early return (Rules of Hooks)
+  const [filter, setFilter] = useState("all");
+
+  // Upload step
   if (step === "upload") return (
     <div>
       <input type="file" accept=".docx" style={{display:"none"}}
@@ -423,11 +427,10 @@ export function TopicMapImporter({ syllabus, currentOMR, onApply, onClose }) {
     </div>
   );
 
-  // Filter controls
-  const [filter, setFilter] = useState("all"); // all | matched | unmatched | untagged
+  // Review step — filter visible rows
   const visible = rows.filter(r =>
-    filter==="all" ? true :
-    filter==="matched" ? r.status==="matched" :
+    filter==="all"       ? true :
+    filter==="matched"   ? r.status==="matched" :
     filter==="unmatched" ? r.status==="unmatched" :
     r.status==="untagged"
   );
