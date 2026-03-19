@@ -297,7 +297,7 @@ export function computeScoreFromOMR(omr, keyAnswers, syllabus, rangeOverride = {
 
   for (let q = 1; q <= 100; q++) {
     const entry    = omr[q] || {};
-    const keyAns   = keyAnswers ? (keyAnswers[q] || null) : null;
+    const keyAns   = keyAnswers ? (keyAnswers[String(q)] || null) : null;
     const myAns    = entry.answer || null;
     const isDeleted = keyAns === "X";
 

@@ -273,24 +273,44 @@ export const OPTS = ["A", "B", "C", "D"];
  * - Calculate score button
  */
 export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride, onSave, onClose }) {
-  const [local, setLocal]               = useState(() => ({ ...emptyOMR(), ...omr }));
-  const [selBooklet, setSelBooklet]     = useState(bookletCode || "");
-  const [subjectFilter, setSubjectFilter] = useState("all");
-  const [guessFilter, setGuessFilter]   = useState("all"); // all | guessed | unguessed
-  const [searchQ, setSearchQ]           = useState("");
-  const [computed, setComputed]         = useState(null);
-  const [showCalcError, setShowCalcError] = useState("");
-  const topicOptions                    = buildTopicOptions(syllabus);
+  const [local, setLocal] = useState(() => ({ ...emptyOMR(), ...omr }));
 
-  // Derive the answer map for the selected booklet
+  // Auto-initialise selBooklet:
+  // - single-booklet key -> use that code automatically (no user input needed)
+  // - multi-booklet key  -> use previously saved bookletCode or prompt user
+  // - no key             -> use saved bookletCode (manual entry)
+  const initBooklet = () => {
+    if (answerKey?.type === "single") return answerKey.singleCode || "A";
+    return bookletCode || "";
+  };
+  const [selBooklet, setSelBooklet]         = useState(initBooklet);
+  const [manualBooklet, setManualBooklet]   = useState(bookletCode || "A");
+  const [subjectFilter, setSubjectFilter]   = useState("all");
+  const [guessFilter, setGuessFilter]       = useState("all");
+  const [searchQ, setSearchQ]               = useState("");
+  const [computed, setComputed]             = useState(null);
+  const [showCalcError, setShowCalcError]   = useState("");
+  const topicOptions                        = buildTopicOptions(syllabus);
+
+  /**
+   * Get the answer key map for the selected booklet.
+   * CRITICAL FIX: After JSON round-trip through localStorage, numeric object
+   * keys become strings (e.g. {1:"C"} -> {"1":"C"}). We normalise all keys
+   * to strings so keyAnswers[String(q)] always resolves correctly.
+   */
   const getKeyAnswers = () => {
     if (!answerKey) return null;
-    if (answerKey.type === "multi") return answerKey.booklets[selBooklet] || null;
-    if (answerKey.type === "single") return answerKey.singleAnswers || null;
-    return null;
+    let raw = null;
+    if (answerKey.type === "multi")  raw = answerKey.booklets?.[selBooklet] || null;
+    if (answerKey.type === "single") raw = answerKey.singleAnswers || null;
+    if (!raw) return null;
+    // Normalise: rebuild map with string keys
+    const norm = {};
+    for (const [k, v] of Object.entries(raw)) norm[String(k)] = v;
+    return norm;
   };
 
-  // Get deleted Q numbers for selected booklet
+  // Get deleted question numbers for selected booklet
   const getDeletedQs = () => {
     if (!answerKey) return new Set();
     const del = answerKey.deletedQuestions || {};
@@ -318,16 +338,21 @@ export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride,
   };
 
   const handleCalculate = () => {
-    if (answerKey && answerKey.type === "multi" && !selBooklet) {
-      setShowCalcError("Please select your booklet version (A/B/C/D) before calculating.");
+    // Multi-booklet requires user to pick a column
+    if (answerKey?.type === "multi" && !selBooklet) {
+      setShowCalcError("Please tap your booklet version (A / B / C / D) above before calculating.");
       return;
     }
     const keyAnswers = getKeyAnswers();
     if (!keyAnswers) {
-      setShowCalcError("No answer key available. Upload an answer key to auto-calculate scores.");
+      setShowCalcError("No answer key uploaded for this paper. Upload a key first, then Calculate.");
       return;
     }
     const answered = Object.values(local).filter(e => e.answer).length;
+    if (answered === 0) {
+      setShowCalcError("No answers recorded yet. Fill in the OMR bubbles first.");
+      return;
+    }
     if (answered < 50) {
       if (!window.confirm(`Only ${answered} answers recorded. Calculate anyway?`)) return;
     }
@@ -336,11 +361,15 @@ export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride,
     setComputed(result);
   };
 
+  // Save OMR + computed scores + the booklet code that was used
   const handleSave = () => {
-    onSave({ omr: local, computed, bookletCode: selBooklet });
+    const finalBooklet = answerKey?.type === "single"
+      ? answerKey.singleCode
+      : selBooklet || manualBooklet;
+    onSave({ omr: local, computed, bookletCode: finalBooklet });
   };
 
-  // Build available booklet options
+  // bookletOptions retained for any remaining references
   const bookletOptions = answerKey
     ? (answerKey.type === "multi" ? ["A","B","C","D"] : [answerKey.singleCode])
     : [];
@@ -375,28 +404,62 @@ export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride,
           {answered}/100 answered &nbsp;·&nbsp; {guessCount} guesses
         </span>
 
-        {/* Booklet selector */}
-        {bookletOptions.length > 1 && (
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: T.text2 }}>
-            Booklet:
-            {bookletOptions.map(bl => (
-              <button key={bl}
-                onClick={() => setSelBooklet(bl)}
-                style={{
-                  ...btnGhost, padding: "4px 12px", fontSize: 13, fontWeight: 700,
-                  background: selBooklet === bl ? T.accent : "transparent",
-                  color: selBooklet === bl ? "#fff" : T.text2,
-                  borderColor: selBooklet === bl ? T.accent : T.border2,
-                }}
-              >{bl}</button>
-            ))}
-          </label>
-        )}
-        {bookletOptions.length === 1 && (
-          <span style={{ fontSize: 12, color: T.text2 }}>
-            Booklet: <strong style={{ color: T.accent2 }}>{bookletOptions[0]}</strong>
-          </span>
-        )}
+        {/* ── Booklet selector ──
+            3 cases:
+            1. Multi-booklet key   → show A/B/C/D tap buttons (user must pick)
+            2. Single-booklet key  → show locked label (auto-detected from file)
+            3. No answer key       → show manual A/B/C/D tap buttons so booklet
+                                     code is recorded with the paper for reference */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: T.text2, flexShrink: 0 }}>My Booklet:</span>
+
+          {/* Case 1: multi-booklet — user picks */}
+          {answerKey?.type === "multi" && ["A","B","C","D"].map(bl => (
+            <button key={bl} onClick={() => setSelBooklet(bl)}
+              style={{
+                ...btnGhost, padding: "6px 14px", fontSize: 14, fontWeight: 800,
+                background: selBooklet === bl ? T.accent : "transparent",
+                color:      selBooklet === bl ? "#fff"    : T.text2,
+                borderColor:selBooklet === bl ? T.accent  : T.border2,
+                minWidth: 40, borderRadius: 8,
+              }}
+            >{bl}</button>
+          ))}
+
+          {/* Case 2: single-booklet — locked, show what was detected */}
+          {answerKey?.type === "single" && (
+            <span style={{
+              background: T.accent + "22", color: T.accent2,
+              fontWeight: 800, fontSize: 15, padding: "5px 16px",
+              borderRadius: 8, border: `1px solid ${T.accent}44`,
+              letterSpacing: "0.05em",
+            }}>
+              {answerKey.singleCode}
+              <span style={{ fontSize: 10, color: T.text3, marginLeft: 6, fontWeight: 400 }}>
+                (from key file)
+              </span>
+            </span>
+          )}
+
+          {/* Case 3: no answer key — manual selection for record-keeping */}
+          {!answerKey && ["A","B","C","D"].map(bl => (
+            <button key={bl} onClick={() => { setManualBooklet(bl); setSelBooklet(bl); }}
+              style={{
+                ...btnGhost, padding: "6px 14px", fontSize: 14, fontWeight: 800,
+                background: manualBooklet === bl ? T.purple + "44" : "transparent",
+                color:      manualBooklet === bl ? T.purple          : T.text2,
+                borderColor:manualBooklet === bl ? T.purple          : T.border2,
+                minWidth: 40, borderRadius: 8,
+              }}
+            >{bl}</button>
+          ))}
+
+          {!answerKey && (
+            <span style={{ fontSize: 11, color: T.text3 }}>
+              (no key uploaded — for record only)
+            </span>
+          )}
+        </div>
 
         {/* Filters */}
         <select value={subjectFilter} onChange={e => setSubjectFilter(e.target.value)}
