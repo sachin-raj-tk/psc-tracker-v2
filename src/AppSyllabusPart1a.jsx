@@ -231,10 +231,10 @@ export function parseSyllabusDocx(rawText) {
     warnings.push("No topics found. Check the [N] Topic name format.");
   const totalMarks = subjects.reduce((a, s) => a + s.maxMarks, 0);
   if (totalMarks > 0 && totalMarks !== 100)
-    warnings.push(\`Total marks sum to ${totalMarks}, not 100. Verify subject marks.`);
+    warnings.push(`Total marks sum to ${totalMarks}, not 100. Verify subject marks.`);
   const missingQRanges = subjects.filter(s => s.qStart === null).map(s => s.name);
   if (missingQRanges.length > 0)
-    warnings.push(\`Q-range missing for: ${missingQRanges.join(", ")}. Add Q1-QN to subject headers or set manually.`);
+    warnings.push(`Q-range missing for: ${missingQRanges.join(", ")}. Add Q1-QN to subject headers or set manually.`);
 
   return { examName, subjects, totalTopics, totalMarks, warnings };
 }
@@ -279,7 +279,7 @@ export function parseTopicMapDocx(rawText) {
 
     for (const q of qNums) {
       if (qToTopicNo[q]) {
-        warnings.push(\`Q${q} appears under multiple topics (${qToTopicNo[q]} and ${topicNo}). Using ${topicNo}.`);
+        warnings.push(`Q${q} appears under multiple topics (${qToTopicNo[q]} and ${topicNo}). Using ${topicNo}.`);
       }
       qToTopicNo[q] = topicNo;
     }
@@ -289,7 +289,7 @@ export function parseTopicMapDocx(rawText) {
   if (tagged === 0)
     warnings.push("No question-topic mappings found. Check the docx table format.");
   else if (tagged < 50)
-    warnings.push(\`Only ${tagged} questions tagged. Expected more. Verify the docx format.`);
+    warnings.push(`Only ${tagged} questions tagged. Expected more. Verify the docx format.`);
 
   return { qToTopicNo, tagged, warnings };
 }
