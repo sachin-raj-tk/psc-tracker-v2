@@ -660,22 +660,61 @@ export function PaperDetail({ paper, syllabus, onEdit, onClose, onShare }) {
 
         {/* Topic performance */}
         {c && Object.keys(c.byTopic || {}).length > 0 && (
-          <Section title="Topic Performance (from OMR tags)" accent={T.cyan}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {Object.entries(c.byTopic).map(([tid, stats]) => {
-                const topic = syllabus.subjects.flatMap(s => s.topics).find(t => t.id === tid);
-                if (!topic) return null;
-                const acc = stats.total > 0 ? Math.round(stats.correct / stats.total * 100) : 0;
+          <Section title="📌 Topic Performance (from OMR tags)" accent={T.cyan}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {syllabus.subjects.map(subj => {
+                const subjTopics = subj.topics
+                  .filter(t => c.byTopic[t.id])
+                  .map(t => ({
+                    ...t,
+                    stats: c.byTopic[t.id],
+                    acc: c.byTopic[t.id].total > 0
+                      ? Math.round(c.byTopic[t.id].correct / c.byTopic[t.id].total * 100)
+                      : 0,
+                  }))
+                  .sort((a, b) =>
+                    b.stats.total !== a.stats.total
+                      ? b.stats.total - a.stats.total
+                      : b.acc - a.acc
+                  );
+                if (subjTopics.length === 0) return null;
+                const sIdx = syllabus.subjects.findIndex(s => s.id === subj.id);
+                const sColor = T.subjectColors[sIdx % T.subjectColors.length] || T.accent;
                 return (
-                  <div key={tid} style={{
-                    padding: "6px 10px", borderRadius: 6,
-                    background: T.surface, border: `1px solid ${T.border}`,
-                    fontSize: 11,
-                  }}>
-                    <span style={{ color: T.text2 }}>{topic.name}</span>
-                    <span style={{ marginLeft: 8, color: scoreColor(acc), fontFamily: "monospace" }}>
-                      {stats.correct}/{stats.total} ({acc}%)
-                    </span>
+                  <div key={subj.id}>
+                    <div style={{
+                      fontSize: 11, fontWeight: 700, color: sColor,
+                      textTransform: "uppercase", letterSpacing: "0.08em",
+                      borderBottom: `1px solid ${sColor}33`,
+                      paddingBottom: 5, marginBottom: 8,
+                      display: "flex", justifyContent: "space-between",
+                    }}>
+                      <span>{subj.name}</span>
+                      <span style={{ fontWeight: 400, color: T.text3, fontSize: 10 }}>
+                        {subjTopics.length} topic{subjTopics.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {subjTopics.map(t => (
+                        <div key={t.id} style={{
+                          display: "grid", gridTemplateColumns: "1fr auto auto",
+                          gap: 10, alignItems: "center",
+                          padding: "6px 10px", borderRadius: 6,
+                          background: T.surface, border: `1px solid ${T.border}`,
+                        }}>
+                          <span style={{ fontSize: 12, color: T.text2, minWidth: 0 }}>
+                            {t.topicNo
+                              ? <span style={{ fontSize: 10, color: T.text3, marginRight: 5, fontFamily: "monospace" }}>[{t.topicNo}]</span>
+                              : null}
+                            {t.name}
+                          </span>
+                          <span style={{ fontFamily: "monospace", fontSize: 12, color: T.text3, whiteSpace: "nowrap" }}>
+                            {t.stats.correct}/{t.stats.total}
+                          </span>
+                          <Badge label={`${t.acc}%`} color={scoreColor(t.acc)} />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 );
               })}
