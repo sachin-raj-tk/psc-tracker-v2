@@ -810,36 +810,73 @@ export function SyllabusEditor({ initial, existingNames, onSave, onClose }) {
 
       {subjects.map((s, idx) => (
         <div key={s.id} style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: 14, marginBottom: 10 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px auto", gap: 10, marginBottom: 10, alignItems: "end" }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 10, color: T.text3 }}>Subject Name *</span>
-              <input style={{ ...inputStyle, borderColor: errors[`s_name_${idx}`] ? T.red : T.border }}
-                value={s.name} onChange={e => updSubj(idx, "name", e.target.value)} placeholder="e.g. History" />
+
+          {/* Row 1: Subject name (full width) + Remove button */}
+          <div style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "flex-end" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Subject Name *
+              </span>
+              <input
+                style={{ ...inputStyle, borderColor: errors[`s_name_${idx}`] ? T.red : T.border }}
+                value={s.name}
+                onChange={e => updSubj(idx, "name", e.target.value)}
+                placeholder="e.g. History"
+              />
               <FieldError msg={errors[`s_name_${idx}`]} />
             </label>
+            <button
+              onClick={() => delSubj(idx)}
+              style={{
+                ...btnGhost,
+                color: T.red, borderColor: T.red + "44",
+                padding: "9px 14px", flexShrink: 0,
+                alignSelf: errors[`s_name_${idx}`] ? "center" : "flex-end",
+                marginBottom: errors[`s_name_${idx}`] ? 18 : 0,
+              }}
+            >
+              Remove
+            </button>
+          </div>
+
+          {/* Row 2: Max Marks | Q Start | Q End — equal thirds */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 10, color: T.text3 }}>Max Marks *</span>
-              <input style={{ ...inputStyle, borderColor: errors[`s_marks_${idx}`] ? T.red : T.border, textAlign: "center" }}
-                type="number" min={1} value={s.maxMarks} onChange={e => updSubj(idx, "maxMarks", e.target.value)} />
+              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Max Marks *
+              </span>
+              <input
+                style={{ ...inputStyle, textAlign: "center", borderColor: errors[`s_marks_${idx}`] ? T.red : T.border }}
+                type="number" min={1} value={s.maxMarks}
+                onChange={e => updSubj(idx, "maxMarks", e.target.value)}
+              />
               <FieldError msg={errors[`s_marks_${idx}`]} />
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 10, color: T.text3 }}>Q Start</span>
-              <input style={{ ...inputStyle, textAlign: "center" }}
-                type="number" min={1} max={100} value={s.questionRange?.start || ""}
-                onChange={e => updRange(idx, "start", e.target.value)} placeholder="1" />
+              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Q Range Start
+              </span>
+              <input
+                style={{ ...inputStyle, textAlign: "center" }}
+                type="number" min={1} max={100}
+                value={s.questionRange?.start || ""}
+                onChange={e => updRange(idx, "start", e.target.value)}
+                placeholder="1"
+              />
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 10, color: T.text3 }}>Q End</span>
-              <input style={{ ...inputStyle, textAlign: "center", borderColor: errors[`s_range_${idx}`] ? T.red : T.border }}
-                type="number" min={1} max={100} value={s.questionRange?.end || ""}
-                onChange={e => updRange(idx, "end", e.target.value)} placeholder="10" />
+              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Q Range End
+              </span>
+              <input
+                style={{ ...inputStyle, textAlign: "center", borderColor: errors[`s_range_${idx}`] ? T.red : T.border }}
+                type="number" min={1} max={100}
+                value={s.questionRange?.end || ""}
+                onChange={e => updRange(idx, "end", e.target.value)}
+                placeholder="10"
+              />
               <FieldError msg={errors[`s_range_${idx}`]} />
             </label>
-            <button onClick={() => delSubj(idx)}
-              style={{ ...btnGhost, color: T.red, borderColor: T.red + "44", alignSelf: "center" }}>
-              Remove
-            </button>
           </div>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase" }}>Topics (one per line) *</span>
