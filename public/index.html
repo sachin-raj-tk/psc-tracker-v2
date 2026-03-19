@@ -18,6 +18,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <title>PSC Tracker</title>
+  <!-- JSZip: required to decompress .docx files (deflate-compressed ZIPs) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     #splash { position:fixed; inset:0; background:#07090f; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; z-index:9999; transition:opacity 0.4s; }
     #splash.hide { opacity:0; pointer-events:none; }
