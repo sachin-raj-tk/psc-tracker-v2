@@ -168,54 +168,88 @@ export function parseAnswerKeyText(rawText) {
  */
 export function parseSyllabusDocx(rawText) {
   const warnings = [];
-  const lines    = rawText.split("\n").map(l => l.trim()).filter(Boolean);
 
-  // ── Extract exam name from first bold/heading line ────────────────────────
-  // Pandoc renders **Bold** as bold text; first non-empty line after stripping
-  const examName = lines[0]
-    ?.replace(/\*\*/g, "").replace(/\\[|\\]/g, "").trim()
+  // Fix HTML entities present in XML-extracted text
+  const clean = rawText
+    .replace(/&amp;/g,  "&")
+    .replace(/&lt;/g,   "<")
+    .replace(/&gt;/g,   ">")
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"');
+
+  const lines = clean.split("\n").map(l => l.trim());
+
+  // First meaningful line is the exam name
+  const examName = lines.find(l => l.length > 3 && !l.startsWith("#"))
     || "Imported Syllabus";
 
-  // ── Parse in one pass ─────────────────────────────────────────────────────
-  const subjects = [];
-  let currentSubject = null;
+  // Subject header — literal ### as stored in docx XML (not pandoc-escaped)
+  // Format: ### SubjectName (10 Marks, Q1-Q10, Topics 1-25)
+  // Q-range is optional: ### SubjectName (10 Marks, Topics 1-25)
+  const subjRe = /^###\s+(.+?)\s+\((\d+)\s+Marks?(?:,\s*Q(\d+)-Q(\d+))?/i;
 
-  for (const line of lines) {
-    // Check for subject header
-    const subMatch = /\\#\#\#\s+(.+?)\s+\((\d+)\s+Marks?(?:,\s*Q(\d+)-Q(\d+))?/i.exec(line);
-    if (subMatch) {
-      if (currentSubject) subjects.push(currentSubject);
-      currentSubject = {
-        name:     subMatch[1].replace(/\*\*/g, "").trim(),
-        maxMarks: parseInt(subMatch[2]) || 0,
-        qStart:   subMatch[3] ? parseInt(subMatch[3]) : null,
-        qEnd:     subMatch[4] ? parseInt(subMatch[4]) : null,
+  // Topic number alone on its own line — name on the next non-empty line
+  // This is how the docx XML extracts: [1] on one line, name on the next
+  const topicNoRe = /^\[(\d+)\]$/;
+
+  // Also handle [N] Name on same line (pandoc output or manually typed)
+  const topicSameRe = /^\[(\d+)\]\s+(.+)/;
+
+  const subjects = [];
+  let cur = null;
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Subject header
+    const sm = subjRe.exec(line);
+    if (sm) {
+      if (cur) subjects.push(cur);
+      cur = {
+        name:     sm[1].trim(),
+        maxMarks: parseInt(sm[2]) || 0,
+        qStart:   sm[3] ? parseInt(sm[3]) : null,
+        qEnd:     sm[4] ? parseInt(sm[4]) : null,
         topics:   [],
       };
+      i++;
       continue;
     }
 
-    // Check for topic entry
-    const topicMatch = /(?:\\[|\[)(\d+)(?:\\]|\])\*{0,2}\s+(.+)/.exec(line);
-    if (topicMatch) {
-      const topicNo  = parseInt(topicMatch[1]);
-      const topicName = topicMatch[2]
-        .replace(/\*\*/g, "")
-        .replace(/\'/g, "'")
-        .replace(/\"/g, '"')
-        .trim();
-      if (!currentSubject) {
-        // Topic before any subject header — create an "Uncategorised" subject
-        currentSubject = { name: "Uncategorised", maxMarks: 0, qStart: null, qEnd: null, topics: [] };
+    // [N] alone on line — name is on next non-empty line
+    const tm = topicNoRe.exec(line);
+    if (tm) {
+      const topicNo = parseInt(tm[1]);
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim()) j++;
+      const name = lines[j] ? lines[j].trim() : "";
+      if (name && !name.startsWith("[") && !name.startsWith("###") && name.length > 1) {
+        if (!cur) cur = { name: "Uncategorised", maxMarks: 0, qStart: null, qEnd: null, topics: [] };
+        cur.topics.push({ topicNo, name });
+        i = j + 1;
+        continue;
       }
-      currentSubject.topics.push({ topicNo, name: topicName });
     }
-  }
-  if (currentSubject && currentSubject.topics.length > 0) subjects.push(currentSubject);
 
-  // ── Validation ────────────────────────────────────────────────────────────
+    // [N] Name on same line
+    const sl = topicSameRe.exec(line);
+    if (sl) {
+      const topicNo = parseInt(sl[1]);
+      const name    = sl[2].trim();
+      if (!cur) cur = { name: "Uncategorised", maxMarks: 0, qStart: null, qEnd: null, topics: [] };
+      cur.topics.push({ topicNo, name });
+      i++;
+      continue;
+    }
+
+    i++;
+  }
+  if (cur && cur.topics.length > 0) subjects.push(cur);
+
+  // Validation
   if (subjects.length === 0)
-    warnings.push("No subjects found. Check the ### Subject (N Marks, Q1-QN, Topics N-N) header format.");
+    warnings.push("No subjects found. Check the ### Subject (N Marks, Q1-QN) header format.");
   const totalTopics = subjects.reduce((a, s) => a + s.topics.length, 0);
   if (totalTopics === 0)
     warnings.push("No topics found. Check the [N] Topic name format.");
@@ -229,59 +263,66 @@ export function parseSyllabusDocx(rawText) {
   return { examName, subjects, totalTopics, totalMarks, warnings };
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// TOPIC MAP DOCX PARSER
-// ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Parse a numbered frequency/topic-map docx text.
- *
- * Expected table format (columns): No. | Syllabus Topic | Q. Nos. | Count
- * Bold entries = questions appeared in paper.
- * Example rows in pandoc output:
- *   **3**  Social Reform Movement  **3**  **1**
- *   **11** Social Reform Movement  **6, 7**  **2**
- *
- * Returns:
- *   { qToTopicNo: {[qNo]: topicNo}, warnings }
- *
- * qToTopicNo maps each question number to the topic number from the docx.
- * The caller resolves topicNo -> topic.id by looking up syllabus.topicNo.
- */
 export function parseTopicMapDocx(rawText) {
-  const warnings = [];
+  const warnings  = [];
   const qToTopicNo = {};
 
-  // Pattern: **topicNo** ... **qNos** **count**
-  // topicNo is a bold integer, qNos is bold (possibly comma-separated), count is bold
-  const rowRe = new RegExp("\\*\\*(\\d+)\\*\\*[^\\n\\*]+\\*\\*([\\d,\\s]+)\\*\\*\\s+\\*\\*(\\d+)\\*\\*", "g");
-  let match;
-  while ((match = rowRe.exec(rawText)) !== null) {
-    const topicNo = parseInt(match[1]);
-    const qNosStr = match[2];
-    const count   = parseInt(match[3]);
+  // Fix HTML entities
+  const clean = rawText
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">").replace(/&apos;/g, "'").replace(/&quot;/g, '"');
 
-    // Parse comma-separated question numbers
-    const qNums = qNosStr.split(",")
-      .map(s => parseInt(s.trim()))
-      .filter(n => !isNaN(n) && n >= 1 && n <= 100);
+  // The frequency docx table has each cell as a separate text run (one per line).
+  // Row structure: topicNo | topicName | qNos (or "---") | count
+  // We scan consecutive runs looking for this 4-cell pattern.
+  const runs = clean.split("\n").map(r => r.trim()).filter(r => r.length > 0);
 
-    for (const q of qNums) {
-      if (qToTopicNo[q]) {
-        warnings.push(`Q${q} appears under multiple topics (${qToTopicNo[q]} and ${topicNo}). Using ${topicNo}.`);
+  let i = 0;
+  while (i < runs.length - 3) {
+    const r0 = runs[i];       // potential topicNo
+    const r1 = runs[i + 1];   // potential topicName
+    const r2 = runs[i + 2];   // potential qNos ("---" or "5" or "6, 7")
+    const r3 = runs[i + 3];   // potential count
+
+    const isTopicNo = /^\d{1,3}$/.test(r0);
+    const isName    = r1.length > 2 && !/^\d+$/.test(r1);
+    const isQNos    = /^[\d,\s]+$/.test(r2) || r2 === "---";
+    const isCount   = /^\d+$/.test(r3);
+
+    if (isTopicNo && isName && isQNos && isCount) {
+      const topicNo = parseInt(r0);
+      if (r2 !== "---") {
+        r2.split(",").forEach(s => {
+          const q = parseInt(s.trim());
+          if (!isNaN(q) && q >= 1 && q <= 200) {
+            if (qToTopicNo[q] !== undefined) {
+              warnings.push(`Q${q} appears under multiple topics. Using topic ${topicNo}.`);
+            }
+            qToTopicNo[q] = topicNo;
+          }
+        });
       }
-      qToTopicNo[q] = topicNo;
+      i += 4;
+      continue;
     }
+    i++;
   }
 
   const tagged = Object.keys(qToTopicNo).length;
   if (tagged === 0)
     warnings.push("No question-topic mappings found. Check the docx table format.");
-  else if (tagged < 50)
-    warnings.push(`Only ${tagged} questions tagged. Expected more. Verify the docx format.`);
+  else if (tagged < 30)
+    warnings.push(`Only ${tagged} questions tagged. Verify the docx format.`);
 
   return { qToTopicNo, tagged, warnings };
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMART OMR SHEET
+// ═══════════════════════════════════════════════════════════════════════════════
+
 
 /**
  * AnswerKeyUploader — upload, parse, display, and manually edit an answer key.
@@ -1015,4 +1056,3 @@ export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride,
 
 // ─── RE-EXPORTS for AppSyllabusPart2 ─────────────────────────────────────────
 // (AppSyllabusPart2 imports these from here)
-
