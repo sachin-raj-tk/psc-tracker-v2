@@ -33,7 +33,7 @@ import {
  * Instructions in README.md under "Google Drive Sync Setup".
  * Leave as empty string to hide the Google Sign-in option.
  */
-const GOOGLE_CLIENT_ID = "523616350993-easu9f28e8g4prf0dtfvp95bk5obcbkc.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "";
 
 /** Google Drive AppData folder — only this app can read/write it */
 const DRIVE_FILE_NAME  = "psc-tracker-backup.json";
@@ -350,8 +350,43 @@ export function SyncPanel({ getAllData, restoreAllData, onRestored }) {
     setPendingImport(null);
   };
 
+  // Base URL for template files served from GitHub Pages
+  const TEMPLATES_BASE = "./templates/";
+  const TEMPLATES = [
+    { name: "Numbered Syllabus",       file: "sample-numbered-syllabus.docx",  desc: "Format for importing syllabus with topic numbers" },
+    { name: "Answer Key (Multi)",       file: "sample-answer-key-multi.docx",   desc: "Multi-booklet A/B/C/D answer key format" },
+    { name: "Answer Key (Single)",      file: "sample-answer-key-single.docx",  desc: "Single-booklet answer key format" },
+    { name: "Topic Map / Frequency",    file: "sample-topic-map.docx",          desc: "Syllabus frequency table with topic numbers" },
+    { name: "Data Backup (JSON)",       file: "sample-backup.json",             desc: "Example of the exported backup file format" },
+  ];
+
   return (
     <div>
+      {/* Reference Documents */}
+      <Section title="📁 Reference Documents" accent={T.purple} style={{ marginBottom: 16 }}>
+        <p style={{ fontSize: 12, color: T.text2, marginBottom: 14, lineHeight: 1.7 }}>
+          Download these template files to understand the correct format for each upload type.
+          These are sample/reference files — replace the content with your actual data.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {TEMPLATES.map(t => (
+            <div key={t.file} style={{ display: "flex", alignItems: "center", gap: 12,
+              padding: "10px 14px", background: T.surface, borderRadius: 8,
+              border: "1px solid " + T.border }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{t.name}</div>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{t.desc}</div>
+              </div>
+              <a href={TEMPLATES_BASE + t.file} download={t.file}
+                style={{ ...btnPrimary(T.purple), textDecoration: "none",
+                  fontSize: 12, padding: "6px 14px" }}>
+                ⬇ Download
+              </a>
+            </div>
+          ))}
+        </div>
+      </Section>
+
       {/* Google Drive */}
       {GOOGLE_CLIENT_ID ? (
         <Section title="☁ Google Drive Sync" accent={T.cyan} style={{ marginBottom: 16 }}>

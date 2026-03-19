@@ -28,7 +28,7 @@ import {
   SyllabusImporter, TopicMapImporter,
 } from "./AppSyllabusPart1b";
 
-export function PaperForm({ syllabus, initial, onSave, onClose }) {
+export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave, onClose }) {
   const [form, setForm]         = useState(initial || emptyPaper(syllabus));
   const [tab, setTab]           = useState("meta");
   const [errors, setErrors]     = useState({});
@@ -125,6 +125,28 @@ export function PaperForm({ syllabus, initial, onSave, onClose }) {
   return (
     <>
       <Modal title={initial ? "Edit Paper" : "Add New Paper"} onClose={onClose} extraWide>
+
+        {/* Syllabus selector — only shown when adding new paper and multiple syllabi exist */}
+        {!initial && syllabi && syllabi.length > 1 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14,
+            padding: "8px 12px", background: T.surface, borderRadius: 8,
+            border: "1px solid " + T.border }}>
+            <span style={{ fontSize: 12, color: T.text3, flexShrink: 0 }}>Adding to:</span>
+            <select
+              value={syllabus.id}
+              onChange={e => onChangeSyllabus && onChangeSyllabus(e.target.value)}
+              style={{ ...inputStyle, fontSize: 12, padding: "4px 8px", flex: 1 }}>
+              {syllabi.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {!initial && (!syllabi || syllabi.length <= 1) && (
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>
+            {"Adding to: " + syllabus.name}
+          </div>
+        )}
 
         {/* Score banner */}
         {totalMarks !== undefined && totalMarks !== null && (

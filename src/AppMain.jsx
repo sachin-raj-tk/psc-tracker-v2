@@ -50,83 +50,103 @@ import {
 /**
  * Dashboard — KPI cards, score trend bar chart, and latest paper summary.
  */
-function Dashboard({ papers, syllabus, streak, onAddPaper }) {
+function Dashboard({ papers, syllabus, streak, onAddPaper, onNavigate }) {
   if (!papers.length) return (
-    <div style={{ ...cardStyle, textAlign: "center", padding: 60 }}>
-      <div style={{ fontSize: 44, marginBottom: 12 }}>📝</div>
-      <div style={{ fontSize: 17, color: T.text2, marginBottom: 8 }}>
-        No papers yet for {syllabus.shortName}
+    <div>
+      <div style={{ ...cardStyle, textAlign: "center", padding: 48, marginBottom: 16 }}>
+        <div style={{ fontSize: 44, marginBottom: 12 }}>📝</div>
+        <div style={{ fontSize: 17, color: T.text2, marginBottom: 8 }}>
+          No papers yet for {syllabus.shortName}
+        </div>
+        <div style={{ fontSize: 13, color: T.text3, marginBottom: 20 }}>
+          Add your first paper to start tracking
+        </div>
+        <button onClick={onAddPaper} style={btnPrimary(T.accent)}>+ Add First Paper</button>
       </div>
-      <div style={{ fontSize: 13, color: T.text3, marginBottom: 20 }}>
-        Add your first paper to start tracking
+      {/* Quick actions for empty state */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {[
+          { icon: "📅", label: "Log Today's Study", sub: "Track what you revised", color: T.purple, action: () => onNavigate("study") },
+          { icon: "📈", label: "View Analytics",    sub: "See your performance",   color: T.accent, action: () => onNavigate("analytics") },
+        ].map(q => (
+          <button key={q.label} onClick={q.action} style={{
+            ...cardStyle, border: "1px solid " + q.color + "44",
+            cursor: "pointer", textAlign: "left", padding: "14px 16px",
+            background: q.color + "11",
+          }}>
+            <div style={{ fontSize: 22, marginBottom: 6 }}>{q.icon}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 3 }}>{q.label}</div>
+            <div style={{ fontSize: 11, color: T.text3 }}>{q.sub}</div>
+          </button>
+        ))}
       </div>
-      <button onClick={onAddPaper} style={btnPrimary(T.accent)}>+ Add First Paper</button>
     </div>
   );
 
   // Sort by date for trend chart
-  const sorted  = [...papers].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
-  const scores  = sorted.map(p => p.computed?.totalMarks ?? 0);
-  const avg     = scores.reduce((a, b) => a + b, 0) / scores.length;
-  const best    = Math.max(...scores);
-  const maxSc   = Math.max(...scores, 1);
-  const latest  = [...papers].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+  const sorted = [...papers].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const scores = sorted.map(p => p.computed?.totalMarks ?? 0);
+  const avg    = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const best   = Math.max(...scores);
+  const maxSc  = Math.max(...scores, 1);
+  const latest = [...papers].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+  const streakCount = streak?.currentStreak || 0;
 
   return (
     <div>
-      {/* KPI strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+      {/* KPI grid — 2x2 on mobile, wraps cleanly */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
         {[
-          { l: "Papers Tracked", v: papers.length,     unit: "",     c: T.accent  },
-          { l: "Average Score",  v: avg.toFixed(1),     unit: "/100", c: scoreColor(pct(avg, 100))  },
-          { l: "Best Score",     v: best.toFixed(1),    unit: "/100", c: T.green   },
-          { l: "Study Streak",   v: streak?.currentStreak || 0, unit: " days", c: (streak?.currentStreak || 0) >= 7 ? T.orange : T.text2 },
+          { l: "Papers",       v: papers.length,    unit: "",     c: T.accent },
+          { l: "Average",      v: avg.toFixed(1),   unit: "/100", c: scoreColor(pct(avg, 100)) },
+          { l: "Best Score",   v: best.toFixed(1),  unit: "/100", c: T.green },
+          { l: "Study Streak", v: streakCount,      unit: " days", c: streakCount >= 7 ? T.orange : T.text2 },
         ].map(k => (
-          <div key={k.l} style={{ ...cardStyle, textAlign: "center" }}>
-            <div style={{ fontSize: 11, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+          <div key={k.l} style={{ ...cardStyle, textAlign: "center", padding: "16px 12px" }}>
+            <div style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
               {k.l}
             </div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: k.c, fontFamily: "monospace" }}>
+            <div style={{ fontSize: 26, fontWeight: 800, color: k.c, fontFamily: "monospace" }}>
               {k.v}<span style={{ fontSize: 12, color: T.text3 }}>{k.unit}</span>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Score trend */}
+      {/* Score trend — only show chart if more than 1 paper */}
       <Section title="📈 Score Trend" accent={T.accent}>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 90 }}>
-          {sorted.map((p, i) => {
-            const sc  = p.computed?.totalMarks ?? 0;
-            const h   = Math.max(6, (sc / maxSc) * 80);
-            const col = scoreColor(pct(sc, 100));
-            return (
-              <div key={p.id} title={`${p.name || p.code}: ${sc.toFixed(1)}`}
-                style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                <span style={{ fontSize: 9, color: col, fontFamily: "monospace" }}>{sc.toFixed(0)}</span>
-                <div style={{
-                  width: "100%", height: h,
-                  background: col + "88", borderRadius: "3px 3px 0 0",
-                  border: `1px solid ${col}`,
-                }} />
-                <span style={{
-                  fontSize: 8, color: T.text3,
-                  maxWidth: 36, overflow: "hidden",
-                  textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }}>
-                  {p.name || p.code || `P${i + 1}`}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        {scores.length > 1 && (
-          <div style={{ fontSize: 11, color: T.text3, marginTop: 8 }}>
-            Δ from first:&nbsp;
-            <strong style={{ color: scores[scores.length - 1] >= scores[0] ? T.green : T.red }}>
-              {scores[scores.length - 1] >= scores[0] ? "+" : ""}
-              {(scores[scores.length - 1] - scores[0]).toFixed(1)}
-            </strong>
+        {scores.length <= 1 ? (
+          <div style={{ textAlign: "center", padding: "20px 0", color: T.text3, fontSize: 12 }}>
+            Add more papers to see your score trend over time.
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 90 }}>
+              {sorted.map((p, i) => {
+                const sc  = p.computed?.totalMarks ?? 0;
+                const h   = Math.max(6, (sc / maxSc) * 80);
+                const col = scoreColor(pct(sc, 100));
+                return (
+                  <div key={p.id} title={(p.name || p.code) + ": " + sc.toFixed(1)}
+                    style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                    <span style={{ fontSize: 9, color: col, fontFamily: "monospace" }}>{sc.toFixed(0)}</span>
+                    <div style={{ width: "100%", height: h, background: col + "88",
+                      borderRadius: "3px 3px 0 0", border: "1px solid " + col }} />
+                    <span style={{ fontSize: 8, color: T.text3, maxWidth: 36,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p.name || p.code || ("P" + (i + 1))}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 8 }}>
+              {"Delta from first: "}
+              <strong style={{ color: scores[scores.length-1] >= scores[0] ? T.green : T.red }}>
+                {scores[scores.length-1] >= scores[0] ? "+" : ""}
+                {(scores[scores.length-1] - scores[0]).toFixed(1)}
+              </strong>
+            </div>
           </div>
         )}
       </Section>
@@ -139,19 +159,35 @@ function Dashboard({ papers, syllabus, streak, onAddPaper }) {
               <div style={{ fontWeight: 700, color: T.text }}>{latest.name}</div>
               {latest.date && <div style={{ fontSize: 12, color: T.text3 }}>{fmtDate(latest.date)}</div>}
             </div>
-            <div style={{
-              fontSize: 28, fontWeight: 900, fontFamily: "monospace",
-              color: scoreColor(pct(latest.computed.totalMarks, 100)),
-            }}>
+            <div style={{ fontSize: 28, fontWeight: 900, fontFamily: "monospace",
+              color: scoreColor(pct(latest.computed.totalMarks, 100)) }}>
               {latest.computed.totalMarks.toFixed(2)}
               <span style={{ fontSize: 12, color: T.text3 }}>/100</span>
             </div>
             <div style={{ fontSize: 12, color: T.text2 }}>
-              ✓ {latest.computed.totalCorrect} &nbsp; ✗ {latest.computed.totalWrong}
+              {"✓ " + latest.computed.totalCorrect + "  ✗ " + latest.computed.totalWrong}
             </div>
           </div>
         </Section>
       )}
+
+      {/* Quick actions */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 4 }}>
+        {[
+          { icon: "📅", label: "Log Study",   sub: "Record today's revision", color: T.purple, action: () => onNavigate("study")     },
+          { icon: "📈", label: "Analytics",   sub: "View performance trends",  color: T.accent, action: () => onNavigate("analytics") },
+        ].map(q => (
+          <button key={q.label} onClick={q.action} style={{
+            ...cardStyle, border: "1px solid " + q.color + "44",
+            cursor: "pointer", textAlign: "left", padding: "14px 16px",
+            background: q.color + "11",
+          }}>
+            <div style={{ fontSize: 20, marginBottom: 4 }}>{q.icon}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2 }}>{q.label}</div>
+            <div style={{ fontSize: 11, color: T.text3 }}>{q.sub}</div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -298,11 +334,20 @@ function PapersList({ papers, syllabus, streak, onAdd, onEdit, onDelete, onView 
  * Subject averages, weak/strong split, guess strategy,
  * topic performance map, revision vs score correlation.
  */
-function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
+function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, allSyllabi, allPapers }) {
   const [dateFrom,    setDateFrom]    = useState("");
   const [dateTo,      setDateTo]      = useState("");
   const [editCutoff,  setEditCutoff]  = useState(false);
   const [cutoffInput, setCutoffInput] = useState(cutoff || "");
+  const [analyticsSylId, setAnalyticsSylId] = useState(_syllabus.id);
+
+  // Allow switching syllabus inside analytics without leaving the page
+  const analyticsSyl = allSyllabi.find(s => s.id === analyticsSylId) || _syllabus;
+  const analyticsFilteredPapers = allPapers.filter(p => p.syllabusId === analyticsSylId);
+  // Override the passed-in props with the locally selected syllabus
+  const papers   = analyticsFilteredPapers;
+  // eslint-disable-next-line no-shadow
+  const syllabus = analyticsSyl;
 
   const filtered = papers.filter(p => {
     if (dateFrom && p.date && p.date < dateFrom) return false;
@@ -470,12 +515,37 @@ function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
 
   return (
     <div>
+      {/* ── Syllabus switcher ── */}
+      {allSyllabi.length > 1 && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: T.text3 }}>Showing:</span>
+          {allSyllabi.map(s => (
+            <button key={s.id} onClick={() => setAnalyticsSylId(s.id)}
+              style={{
+                ...btnGhost, fontSize: 12, padding: "5px 12px",
+                background: analyticsSylId === s.id ? T.accent + "33" : "transparent",
+                color:      analyticsSylId === s.id ? T.accent2 : T.text2,
+                borderColor:analyticsSylId === s.id ? T.accent   : T.border2,
+              }}>
+              {s.shortName}
+            </button>
+          ))}
+        </div>
+      )}
+      {allSyllabi.length <= 1 && (
+        <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>
+          {"Showing analytics for: " + syllabus.shortName}
+        </div>
+      )}
+
       {/* ── Date filter + cutoff ── */}
       <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
         <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+          placeholder="From date"
           style={{ ...inputStyle, width: 150, fontSize: 12 }} />
         <span style={{ color: T.text3 }}>–</span>
         <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+          placeholder="To date"
           style={{ ...inputStyle, width: 150, fontSize: 12 }} />
         {(dateFrom || dateTo) && (
           <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={btnGhost}>Clear</button>
@@ -940,11 +1010,11 @@ function SyllabiPage({ syllabi, papers, activeSylId, onAdd, onImport, onEdit, on
                 <button onClick={() => onSelect(s.id)}
                   style={{
                     ...btnGhost, fontSize: 12,
-                    background: s.id === activeSylId ? T.accent + "22" : "transparent",
-                    color: s.id === activeSylId ? T.accent2 : T.text2,
-                    borderColor: s.id === activeSylId ? T.accent : T.border2,
+                    background: s.id === activeSylId ? T.green + "22" : "transparent",
+                    color:      s.id === activeSylId ? T.green  : T.text2,
+                    borderColor:s.id === activeSylId ? T.green  : T.border2,
                   }}>
-                  {s.id === activeSylId ? "✓ Viewing" : "Select"}
+                  {s.id === activeSylId ? "✓ Active" : "Set Active"}
                 </button>
                 <button onClick={() => onEdit(s)} style={{ ...btnGhost, fontSize: 12 }}>Edit</button>
                 <button onClick={() => setToDelete(s)}
@@ -973,19 +1043,39 @@ function SyllabiPage({ syllabi, papers, activeSylId, onAdd, onImport, onEdit, on
 // STUDY TRACKER PAGE — tabbed: Streak | Study Log | Revision Counter
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function StudyTrackerPage({ syllabus, papers, logs, streak, onSaveLog, onDeleteLog, onUpdateRevision }) {
+function StudyTrackerPage({ syllabus, papers, logs, streak, onSaveLog, onDeleteLog, onUpdateRevision, allSyllabi, onSwitchSyllabus }) {
   const [tab, setTab] = useState("streak");
 
   const tabStyle = (t) => ({
     padding: "10px 16px", fontSize: 13, fontWeight: 600,
     background: "transparent", border: "none", cursor: "pointer",
     color: tab === t ? T.text : T.text3,
-    borderBottom: tab === t ? `2px solid ${T.accent}` : "2px solid transparent",
+    borderBottom: tab === t ? "2px solid " + T.accent : "2px solid transparent",
   });
 
   return (
     <div>
-      <div style={{ borderBottom: `1px solid ${T.border}`, marginBottom: 20, display: "flex" }}>
+      {/* Syllabus context label + switcher */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: T.text3 }}>Studying:</span>
+        {allSyllabi && allSyllabi.length > 1 ? (
+          allSyllabi.map(s => (
+            <button key={s.id} onClick={() => onSwitchSyllabus(s.id)}
+              style={{
+                ...btnGhost, fontSize: 12, padding: "4px 10px",
+                background: s.id === syllabus.id ? T.accent + "33" : "transparent",
+                color:      s.id === syllabus.id ? T.accent2 : T.text2,
+                borderColor:s.id === syllabus.id ? T.accent   : T.border2,
+              }}>
+              {s.shortName}
+            </button>
+          ))
+        ) : (
+          <span style={{ fontSize: 12, fontWeight: 700, color: T.accent2 }}>{syllabus.shortName}</span>
+        )}
+      </div>
+
+      <div style={{ borderBottom: "1px solid " + T.border, marginBottom: 20, display: "flex" }}>
         <button onClick={() => setTab("streak")}    style={tabStyle("streak")}>🔥 Streak</button>
         <button onClick={() => setTab("log")}       style={tabStyle("log")}>📅 Study Log</button>
         <button onClick={() => setTab("revisions")} style={tabStyle("revisions")}>📖 Revisions</button>
@@ -1135,12 +1225,12 @@ export default function App() {
 
   // Bottom tab definitions
   const TABS = [
-    { key: "dashboard", icon: "📊", label: "Home"     },
-    { key: "papers",    icon: "📋", label: "Papers"   },
-    { key: "analytics", icon: "📈", label: "Analytics"},
-    { key: "study",     icon: "📚", label: "Study"    },
-    { key: "syllabi",   icon: "🗂",  label: "Syllabi"  },
-    { key: "sync",      icon: "☁",  label: "Sync"     },
+    { key: "dashboard", icon: "📊", label: "Home"      },
+    { key: "papers",    icon: "📋", label: "Papers"    },
+    { key: "analytics", icon: "📈", label: "Analytics" },
+    { key: "study",     icon: "📚", label: "Study"     },
+    { key: "syllabi",   icon: "🗂",  label: "Syllabi"   },
+    { key: "sync",      icon: "⚙",  label: "Settings"  },
   ];
 
   return (
@@ -1199,6 +1289,7 @@ export default function App() {
           <Dashboard
             papers={activePapers} syllabus={activeSyl} streak={streak}
             onAddPaper={() => setModal({ type: "addPaper" })}
+            onNavigate={setPage}
           />
         )}
 
@@ -1217,6 +1308,8 @@ export default function App() {
             papers={activePapers} syllabus={activeSyl}
             cutoff={cutoffs[activeSylId]}
             onSetCutoff={handleSetCutoff}
+            allSyllabi={syllabi}
+            allPapers={papers}
           />
         )}
 
@@ -1226,6 +1319,8 @@ export default function App() {
             logs={logs} streak={streak}
             onSaveLog={saveLog} onDeleteLog={deleteLog}
             onUpdateRevision={updateRevision}
+            allSyllabi={syllabi}
+            onSwitchSyllabus={setActiveSylId}
           />
         )}
 
@@ -1236,13 +1331,13 @@ export default function App() {
             onImport={()   => setModal({ type: "importSyllabus" })}
             onEdit={(s)    => setModal({ type: "editSyllabus", syllabus: s })}
             onDelete={handleDeleteSyllabus}
-            onSelect={(id) => { setActiveSylId(id); setPage("dashboard"); }}
+            onSelect={(id) => { setActiveSylId(id); }}
           />
         )}
 
         {page === "sync" && (
           <div>
-            <h2 style={{ margin: "0 0 20px", fontWeight: 800, fontSize: 18, color: T.text }}>Sync & Backup</h2>
+            <h2 style={{ margin: "0 0 20px", fontWeight: 800, fontSize: 18, color: T.text }}>Settings</h2>
             <SyncPanel
               getAllData={getAllData}
               restoreAllData={restoreAllData}
@@ -1271,6 +1366,8 @@ export default function App() {
       {modal?.type === "addPaper" && activeSyl && (
         <PaperForm
           syllabus={activeSyl}
+          syllabi={syllabi}
+          onChangeSyllabus={setActiveSylId}
           onSave={handleSavePaper}
           onClose={() => setModal(null)}
         />
