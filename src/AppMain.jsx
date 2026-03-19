@@ -29,6 +29,8 @@ import {
   PaperDetail,
 } from "./AppSyllabusPart2";
 
+import { SyllabusImporter } from "./AppSyllabusPart1b";
+
 import {
   useStudyTracker,
   StudyLogPanel,
@@ -548,14 +550,17 @@ function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
 // SYLLABI PAGE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function SyllabiPage({ syllabi, papers, activeSylId, onAdd, onEdit, onDelete, onSelect }) {
+function SyllabiPage({ syllabi, papers, activeSylId, onAdd, onImport, onEdit, onDelete, onSelect }) {
   const [toDelete, setToDelete] = useState(null);
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap:"wrap", gap:10 }}>
         <h2 style={{ margin: 0, fontWeight: 800, fontSize: 18, color: T.text }}>Syllabi</h2>
-        <button onClick={onAdd} style={btnPrimary(T.accent)}>+ New Syllabus</button>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={onImport} style={btnPrimary(T.purple)}>📄 Import from Docx</button>
+          <button onClick={onAdd} style={btnPrimary(T.accent)}>+ New Manually</button>
+        </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {syllabi.map(s => {
@@ -876,6 +881,7 @@ export default function App() {
           <SyllabiPage
             syllabi={syllabi} papers={papers} activeSylId={activeSylId}
             onAdd={()      => setModal({ type: "addSyllabus" })}
+            onImport={()   => setModal({ type: "importSyllabus" })}
             onEdit={(s)    => setModal({ type: "editSyllabus", syllabus: s })}
             onDelete={handleDeleteSyllabus}
             onSelect={(id) => { setActiveSylId(id); setPage("dashboard"); }}
@@ -931,6 +937,17 @@ export default function App() {
           syllabus={activeSyl}
           onEdit={() => setModal({ type: "editPaper", paper: modal.paper })}
           onShare={() => shareOnWhatsApp(modal.paper, activeSyl, streak?.currentStreak)}
+          onClose={() => setModal(null)}
+        />
+      )}
+
+      {/* Syllabus importer modal */}
+      {modal?.type === "importSyllabus" && (
+        <SyllabusImporter
+          existingNames={syllabi.map(s => s.name)}
+          onConfirm={async (syl) => {
+            await handleSaveSyllabus(syl);
+          }}
           onClose={() => setModal(null)}
         />
       )}

@@ -21,8 +21,12 @@ import {
 import {
   emptyPaper, emptyOMR,
   buildTopicOptions, OPTS,
+} from "./AppSyllabusPart1a";
+
+import {
   AnswerKeyUploader, SmartOMR,
-} from "./AppSyllabusPart1";
+  SyllabusImporter, TopicMapImporter,
+} from "./AppSyllabusPart1b";
 
 export function PaperForm({ syllabus, initial, onSave, onClose }) {
   const [form, setForm]         = useState(initial || emptyPaper(syllabus));
@@ -144,11 +148,12 @@ export function PaperForm({ syllabus, initial, onSave, onClose }) {
         {/* Tab bar */}
         <div style={{ borderBottom: `1px solid ${T.border}`, marginBottom: 16, display: "flex", overflowX: "auto" }}>
           {[
-            ["meta",   "📋 Details"],
-            ["key",    "🔑 Answer Key"],
-            ["omr",    `📝 OMR (${answered}/100)`],
-            ["guess",  "🎲 Guesswork"],
-            ["content","📄 Content"],
+            ["meta",    "📋 Details"],
+            ["key",     "🔑 Answer Key"],
+            ["omr",     `📝 OMR (${answered}/100)`],
+            ["topicmap","🗂 Topic Map"],
+            ["guess",   "🎲 Guesswork"],
+            ["content", "📄 Content"],
           ].map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)} style={tabStyle(k)}>{l}</button>
           ))}
@@ -323,6 +328,27 @@ export function PaperForm({ syllabus, initial, onSave, onClose }) {
               </div>
             )}
           </div>
+        )}
+
+        {/* ── TOPIC MAP TAB ── */}
+        {tab === "topicmap" && (
+          <TopicMapImporter
+            syllabus={syllabus}
+            currentOMR={form.omr}
+            onApply={(updates) => {
+              // Merge topic tags into OMR without touching answers/guesses
+              setForm(f => {
+                const newOMR = { ...f.omr };
+                Object.entries(updates).forEach(([qStr, topicId]) => {
+                  newOMR[qStr] = { ...(newOMR[qStr] || {}), topicId };
+                });
+                return { ...f, omr: newOMR };
+              });
+              setDirty(true);
+              setTab("omr");
+            }}
+            onClose={() => setTab("omr")}
+          />
         )}
 
         {/* ── GUESSWORK TAB ── */}
@@ -754,12 +780,20 @@ export function SyllabusEditor({ initial, existingNames, onSave, onClose }) {
         start: parseInt(s.questionRange?.start) || 0,
         end:   parseInt(s.questionRange?.end)   || 0,
       },
-      topics: s.topicsText.split("\n").map(t => t.trim()).filter(Boolean).map((name, ti) => ({
-        id: (initial?.subjects?.find(os => os.id === s.id)?.topics?.[ti]?.id) || uid(),
-        name,
-        revisionCount:  initial?.subjects?.find(os => os.id === s.id)?.topics?.find(t => t.name === name)?.revisionCount  || 0,
-        lastRevisedDate:initial?.subjects?.find(os => os.id === s.id)?.topics?.find(t => t.name === name)?.lastRevisedDate || null,
-      })),
+      topics: s.topicsText.split("\n").map(t => t.trim()).filter(Boolean).map((raw, ti) => {
+        // Parse optional [N] prefix: "[3] Topic name" or just "Topic name"
+        const numMatch = raw.match(/^\[(\d+)\]\s*(.+)/);
+        const topicNo  = numMatch ? parseInt(numMatch[1]) : null;
+        const name     = numMatch ? numMatch[2].trim() : raw.trim();
+        const existing = initial?.subjects?.find(os => os.id === s.id)?.topics?.[ti];
+        return {
+          id:              existing?.id || uid(),
+          topicNo:         topicNo ?? existing?.topicNo ?? null,
+          name,
+          revisionCount:   existing?.revisionCount  || 0,
+          lastRevisedDate: existing?.lastRevisedDate || null,
+        };
+      }),
     }));
     onSave({
       id: initial?.id || uid(),
@@ -879,12 +913,15 @@ export function SyllabusEditor({ initial, existingNames, onSave, onClose }) {
             </label>
           </div>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase" }}>Topics (one per line) *</span>
-            <textarea rows={4} value={s.topicsText}
+            <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing:"0.08em" }}>
+              Topics (one per line — optionally prefix with [N] e.g. "[3] Topic name") *
+            </span>
+            <textarea rows={5} value={s.topicsText}
               onChange={e => updSubj(idx, "topicsText", e.target.value)}
-              placeholder={"Kerala History\nBritish India\nWorld History"}
-              style={{ ...inputStyle, resize: "vertical", borderColor: errors[`s_topics_${idx}`] ? T.red : T.border }} />
-            <FieldError msg={errors[`s_topics_${idx}`]} />
+              placeholder={"[1] Kerala History\n[2] British India\n[3] World History\nOr just: Topic without number"}
+              style={{ ...inputStyle, resize: "vertical", fontFamily:"monospace", fontSize:12,
+                borderColor: errors[\`s_topics_\${idx}\`] ? T.red : T.border }} />
+            <FieldError msg={errors[\`s_topics_\${idx}\`]} />
           </label>
         </div>
       ))}

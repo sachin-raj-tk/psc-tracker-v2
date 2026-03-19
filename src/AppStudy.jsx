@@ -598,8 +598,17 @@ export function RevisionCounter({ syllabus, papers, onUpdateRevision }) {
 
               {/* Topic name + subject */}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, color: T.text }}>{t.name}</div>
-                <div style={{ fontSize: 10, color: T.text3, display: "flex", gap: 10 }}>
+                <div style={{ fontSize: 12, color: T.text, display:"flex", gap:6, alignItems:"center" }}>
+                  {t.topicNo && (
+                    <span style={{ fontSize:10, fontFamily:"monospace", fontWeight:700,
+                      color:T.accent2, background:T.accent+"22", padding:"1px 6px",
+                      borderRadius:4, flexShrink:0 }}>
+                      [{t.topicNo}]
+                    </span>
+                  )}
+                  {t.name}
+                </div>
+                <div style={{ fontSize: 10, color: T.text3, display: "flex", gap: 10, marginTop:2 }}>
                   <span>{t.subjectName}</span>
                   {t.lastRevisedDate && <span>Last: {fmtDate(t.lastRevisedDate)}</span>}
                   {t.paperCount > 0 && <span style={{ color: T.accent }}>Appeared in {t.paperCount} paper{t.paperCount !== 1 ? "s" : ""}</span>}
