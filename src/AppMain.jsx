@@ -561,13 +561,10 @@ function SyllabiPage({ syllabi, papers, activeSylId, onAdd, onEdit, onDelete, on
         {syllabi.map(s => {
           const sPapers = papers.filter(p => p.syllabusId === s.id).length;
           return (
-            <div key={s.id} style={{
-              ...cardStyle,
-              display: "grid", gridTemplateColumns: "1fr auto auto auto",
-              gap: 12, alignItems: "center",
-            }}>
-              <div>
-                <div style={{ fontWeight: 700, color: T.text, fontSize: 14, display: "flex", gap: 8, alignItems: "center" }}>
+            <div key={s.id} style={{ ...cardStyle }}>
+              {/* Syllabus info */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontWeight: 700, color: T.text, fontSize: 15, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                   {s.name}
                   {s.id === activeSylId && <Badge label="Active" color={T.green} />}
                 </div>
@@ -575,20 +572,29 @@ function SyllabiPage({ syllabi, papers, activeSylId, onAdd, onEdit, onDelete, on
                   {s.subjects.length} subjects · {s.totalMarks} marks ·
                   Neg: {(s.negMark || 1 / 3).toFixed(3)} · {sPapers} paper{sPapers !== 1 ? "s" : ""}
                 </div>
-                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 8 }}>
                   {s.subjects.map(sub => (
                     <Badge key={sub.id} label={`${sub.name} (${sub.maxMarks})`} color={T.accent} />
                   ))}
                 </div>
               </div>
-              <button onClick={() => onSelect(s.id)} style={{ ...btnGhost, fontSize: 12 }}>
-                {s.id === activeSylId ? "Viewing" : "Select"}
-              </button>
-              <button onClick={() => onEdit(s)} style={{ ...btnGhost, fontSize: 12 }}>Edit</button>
-              <button onClick={() => setToDelete(s)}
-                style={{ ...btnGhost, fontSize: 12, color: T.red, borderColor: T.red + "44" }}>
-                Delete
-              </button>
+              {/* Action buttons — horizontal row, wraps on small screens */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
+                <button onClick={() => onSelect(s.id)}
+                  style={{
+                    ...btnGhost, fontSize: 12,
+                    background: s.id === activeSylId ? T.accent + "22" : "transparent",
+                    color: s.id === activeSylId ? T.accent2 : T.text2,
+                    borderColor: s.id === activeSylId ? T.accent : T.border2,
+                  }}>
+                  {s.id === activeSylId ? "✓ Viewing" : "Select"}
+                </button>
+                <button onClick={() => onEdit(s)} style={{ ...btnGhost, fontSize: 12 }}>Edit</button>
+                <button onClick={() => setToDelete(s)}
+                  style={{ ...btnGhost, fontSize: 12, color: T.red, borderColor: T.red + "44", marginLeft: "auto" }}>
+                  Delete
+                </button>
+              </div>
             </div>
           );
         })}
@@ -757,16 +763,8 @@ export default function App() {
     localStorage.setItem("psc-cutoffs", JSON.stringify(upd));
   };
 
-  // ── Nav helper ────────────────────────────────────────────────────────────
-  const navBtn = (key, label) => (
-    <button onClick={() => setPage(key)} style={{
-      padding: "10px 16px", fontSize: 13, fontWeight: 600,
-      background: "transparent", border: "none", cursor: "pointer",
-      color: page === key ? T.text : T.text3,
-      borderBottom: page === key ? `2px solid ${T.accent}` : "2px solid transparent",
-      transition: "all 0.15s", whiteSpace: "nowrap",
-    }}>{label}</button>
-  );
+  // ── Nav helper — bottom tab bar items ───────────────────────────────────
+  // No navBtn needed here; bottom bar is rendered inline in JSX below
 
   if (loading) return (
     <div style={{
@@ -778,56 +776,59 @@ export default function App() {
     </div>
   );
 
-  return (
-    <div style={{ background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', 'Segoe UI', sans-serif", color: T.text }}>
+  // Bottom tab definitions
+  const TABS = [
+    { key: "dashboard", icon: "📊", label: "Home"     },
+    { key: "papers",    icon: "📋", label: "Papers"   },
+    { key: "analytics", icon: "📈", label: "Analytics"},
+    { key: "study",     icon: "📚", label: "Study"    },
+    { key: "syllabi",   icon: "🗂",  label: "Syllabi"  },
+    { key: "sync",      icon: "☁",  label: "Sync"     },
+  ];
 
-      {/* ── Header ── */}
+  return (
+    <div style={{ background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', 'Segoe UI', sans-serif", color: T.text, paddingBottom: 72 }}>
+
+      {/* ── Compact top header ── */}
       <div style={{
         background: T.surface, borderBottom: `1px solid ${T.border}`,
         position: "sticky", top: 0, zIndex: 100,
+        padding: "10px 16px",
+        display: "flex", alignItems: "center", gap: 10,
       }}>
-        <div style={{
-          maxWidth: 1200, margin: "0 auto", padding: "0 20px",
-          display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4,
-        }}>
-          {/* Logo */}
-          <div style={{ padding: "12px 0", marginRight: 16, borderRight: `1px solid ${T.border}`, paddingRight: 16 }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: T.text, letterSpacing: "-0.02em" }}>PSC Tracker</div>
-            <div style={{ fontSize: 10, color: T.text3 }}>Kerala PSC · MCQ Analytics</div>
-          </div>
-
-          {/* Nav tabs — scrollable on mobile */}
-          <div style={{ display: "flex", overflowX: "auto", flex: 1 }}>
-            {navBtn("dashboard", "📊 Dashboard")}
-            {navBtn("papers",    `📋 Papers (${activePapers.length})`)}
-            {navBtn("analytics", "📈 Analytics")}
-            {navBtn("study",     "📚 Study")}
-            {navBtn("syllabi",   "🗂 Syllabi")}
-            {navBtn("sync",      "☁ Sync")}
-          </div>
-
-          {/* Syllabus picker + add paper */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 0" }}>
-            {syllabi.length > 1 && (
-              <select value={activeSylId || ""}
-                onChange={e => setActiveSylId(e.target.value)}
-                style={{ ...inputStyle, width: "auto", fontSize: 12, padding: "5px 10px" }}>
-                {syllabi.map(s => <option key={s.id} value={s.id}>{s.shortName}</option>)}
-              </select>
-            )}
-            {activeSyl && (
-              <button
-                onClick={() => setModal({ type: "addPaper" })}
-                style={{ ...btnPrimary(T.accent), padding: "7px 14px", fontSize: 12 }}>
-                + Paper
-              </button>
-            )}
-          </div>
+        {/* Logo */}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: T.text, letterSpacing: "-0.02em", lineHeight: 1.2 }}>PSC Tracker</div>
+          {activeSyl && (
+            <div style={{ fontSize: 11, color: T.text3 }}>{activeSyl.shortName}</div>
+          )}
         </div>
+
+        {/* Syllabus quick-switcher — only if more than one */}
+        {syllabi.length > 1 && (
+          <select value={activeSylId || ""}
+            onChange={e => setActiveSylId(e.target.value)}
+            style={{ ...inputStyle, width: "auto", fontSize: 11, padding: "4px 8px", maxWidth: 130 }}>
+            {syllabi.map(s => <option key={s.id} value={s.id}>{s.shortName}</option>)}
+          </select>
+        )}
+
+        {/* FAB-style add paper button */}
+        {activeSyl && (
+          <button
+            onClick={() => setModal({ type: "addPaper" })}
+            style={{
+              ...btnPrimary(T.accent),
+              padding: "8px 14px", fontSize: 13, fontWeight: 700,
+              borderRadius: 20, boxShadow: `0 2px 12px ${T.accent}55`,
+            }}>
+            + Paper
+          </button>
+        )}
       </div>
 
-      {/* ── Content ── */}
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: 24 }}>
+      {/* ── Content — extra bottom padding for tab bar ── */}
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "20px 16px 16px" }}>
 
         {!activeSyl && page !== "syllabi" && (
           <div style={{ ...cardStyle, textAlign: "center", padding: 60 }}>
@@ -937,7 +938,39 @@ export default function App() {
       {/* ── Toast notifications ── */}
       <ToastContainer toasts={toasts} />
 
-      {/* ── CSS for toast animation ── */}
+      {/* ── Bottom Tab Bar ── */}
+      <div style={{
+        position: "fixed", bottom: 0, left: 0, right: 0,
+        background: T.surface, borderTop: `1px solid ${T.border}`,
+        display: "flex", zIndex: 200,
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+      }}>
+        {TABS.map(tab_ => {
+          const active = page === tab_.key;
+          return (
+            <button key={tab_.key}
+              onClick={() => setPage(tab_.key)}
+              style={{
+                flex: 1, display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                gap: 2, padding: "8px 4px",
+                background: "transparent", border: "none", cursor: "pointer",
+                color: active ? T.accent2 : T.text3,
+                borderTop: active ? `2px solid ${T.accent}` : "2px solid transparent",
+                transition: "all 0.15s",
+                minWidth: 0,
+              }}
+            >
+              <span style={{ fontSize: 18, lineHeight: 1 }}>{tab_.icon}</span>
+              <span style={{ fontSize: 9, fontWeight: active ? 700 : 400, letterSpacing: "0.02em" }}>
+                {tab_.key === "papers" ? `${tab_.label} (${activePapers.length})` : tab_.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── CSS ── */}
       <style>{`
         @keyframes fadeInUp {
           from { opacity: 0; transform: translateX(-50%) translateY(12px); }

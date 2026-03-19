@@ -808,87 +808,160 @@ export function useToast() {
 
 /**
  * Searchable select dropdown (used for topic picker in OMR, filters etc.)
+ * On mobile, opens as a full-screen overlay for easy tapping.
  * @param {Array<{id,label,group}>} options
  * @param {string|null} value - selected id
  * @param {function} onChange
  * @param {string} placeholder
  */
-export function SearchSelect({ options, value, onChange, placeholder = "Search..." }) {
-  const [query, setQuery]   = useState("");
-  const [open, setOpen]     = useState(false);
-  const ref                 = useRef();
+export function SearchSelect({ options, value, onChange, placeholder = "Tag topic…" }) {
+  const [query, setQuery] = useState("");
+  const [open,  setOpen]  = useState(false);
+  const ref               = useRef();
 
   const selected = options.find(o => o.id === value);
 
   const filtered = query
-    ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase())
-                       || (o.group || "").toLowerCase().includes(query.toLowerCase()))
+    ? options.filter(o =>
+        o.label.toLowerCase().includes(query.toLowerCase()) ||
+        (o.group || "").toLowerCase().includes(query.toLowerCase()))
     : options;
 
-  // Close on outside click
+  // Close on outside click (desktop only — mobile uses overlay)
   useEffect(() => {
     const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  const handleSelect = (id) => {
+    onChange(id);
+    setOpen(false);
+    setQuery("");
+  };
+
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <div
+      {/* Trigger button */}
+      <button
         onClick={() => setOpen(o => !o)}
         style={{
-          ...inputStyle, cursor: "pointer", display: "flex",
-          justifyContent: "space-between", alignItems: "center",
+          width: "100%", background: T.surface,
+          border: `1px solid ${value ? T.accent + "66" : T.border}`,
+          borderRadius: 6, padding: "6px 10px",
+          color: selected ? T.accent2 : T.text3,
+          fontSize: 11, cursor: "pointer",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          fontFamily: "inherit", textAlign: "left",
+          transition: "border-color 0.15s",
         }}
       >
-        <span style={{ color: selected ? T.text : T.text3, fontSize: 12 }}>
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {selected ? selected.label : placeholder}
         </span>
-        <span style={{ color: T.text3 }}>▾</span>
-      </div>
+        <span style={{ color: T.text3, marginLeft: 4, flexShrink: 0 }}>{open ? "▴" : "▾"}</span>
+      </button>
+
+      {/* Full-screen overlay dropdown (mobile-friendly) */}
       {open && (
         <div style={{
-          position: "absolute", top: "100%", left: 0, right: 0,
-          background: T.card2, border: `1px solid ${T.border2}`,
-          borderRadius: 6, zIndex: 500, maxHeight: 220, overflowY: "auto",
-          boxShadow: "0 8px 24px #000a",
-        }}>
-          <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}` }}>
-            <input
-              autoFocus
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search topics..."
-              style={{ ...inputStyle, fontSize: 12, padding: "5px 8px" }}
-              onClick={e => e.stopPropagation()}
-            />
+          position: "fixed", inset: 0,
+          background: "#000c", zIndex: 800,
+          display: "flex", alignItems: "flex-end",
+        }}
+          onClick={e => { if (e.target === e.currentTarget) { setOpen(false); setQuery(""); } }}
+        >
+          <div style={{
+            width: "100%", maxWidth: 600, margin: "0 auto",
+            background: T.card, borderRadius: "16px 16px 0 0",
+            border: `1px solid ${T.border2}`,
+            maxHeight: "70vh", display: "flex", flexDirection: "column",
+            boxShadow: "0 -8px 32px #000a",
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: "14px 16px 10px",
+              borderBottom: `1px solid ${T.border}`,
+              display: "flex", gap: 10, alignItems: "center",
+            }}>
+              <input
+                autoFocus
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search topics..."
+                style={{ ...inputStyle, flex: 1, fontSize: 14, padding: "9px 12px" }}
+                onClick={e => e.stopPropagation()}
+              />
+              <button
+                onClick={() => { setOpen(false); setQuery(""); }}
+                style={{ ...inputStyle, width: "auto", padding: "9px 14px", cursor: "pointer", color: T.text2, fontSize: 13 }}
+              >✕</button>
+            </div>
+
+            {/* Clear selection */}
+            {value && (
+              <div
+                onClick={() => { onChange(null); setOpen(false); setQuery(""); }}
+                style={{
+                  padding: "12px 16px", fontSize: 13, color: T.red,
+                  cursor: "pointer", borderBottom: `1px solid ${T.border}`,
+                  display: "flex", alignItems: "center", gap: 8,
+                }}
+              >
+                <span>✕</span> Clear selection
+              </div>
+            )}
+
+            {/* Options list — grouped */}
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {filtered.length === 0 && (
+                <div style={{ padding: "20px 16px", fontSize: 13, color: T.text3, textAlign: "center" }}>
+                  No topics match "{query}"
+                </div>
+              )}
+              {/* Group by subject */}
+              {(() => {
+                const groups = {};
+                filtered.forEach(o => {
+                  const g = o.group || "Other";
+                  if (!groups[g]) groups[g] = [];
+                  groups[g].push(o);
+                });
+                return Object.entries(groups).map(([group, items]) => (
+                  <div key={group}>
+                    <div style={{
+                      padding: "8px 16px 4px",
+                      fontSize: 10, fontWeight: 700, color: T.accent2,
+                      textTransform: "uppercase", letterSpacing: "0.08em",
+                      background: T.surface,
+                      borderBottom: `1px solid ${T.border}`,
+                    }}>
+                      {group}
+                    </div>
+                    {items.map(o => (
+                      <div
+                        key={o.id}
+                        onClick={() => handleSelect(o.id)}
+                        style={{
+                          padding: "13px 16px",
+                          fontSize: 13,
+                          cursor: "pointer",
+                          background: o.id === value ? T.accent + "22" : "transparent",
+                          color: o.id === value ? T.accent2 : T.text,
+                          borderBottom: `1px solid ${T.border}`,
+                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                          minHeight: 48,
+                        }}
+                      >
+                        <span>{o.label}</span>
+                        {o.id === value && <span style={{ color: T.accent, fontSize: 16 }}>✓</span>}
+                      </div>
+                    ))}
+                  </div>
+                ));
+              })()}
+            </div>
           </div>
-          {filtered.length === 0 && (
-            <div style={{ padding: "10px 12px", fontSize: 12, color: T.text3 }}>No results</div>
-          )}
-          {filtered.map(o => (
-            <div
-              key={o.id}
-              onClick={() => { onChange(o.id); setOpen(false); setQuery(""); }}
-              style={{
-                padding: "8px 12px", fontSize: 12, cursor: "pointer",
-                background: o.id === value ? T.accent + "22" : "transparent",
-                color: o.id === value ? T.accent2 : T.text,
-                borderBottom: `1px solid ${T.border}`,
-              }}
-            >
-              {o.group && <span style={{ fontSize: 10, color: T.text3, marginRight: 6 }}>[{o.group}]</span>}
-              {o.label}
-            </div>
-          ))}
-          {value && (
-            <div
-              onClick={() => { onChange(null); setOpen(false); }}
-              style={{ padding: "8px 12px", fontSize: 11, color: T.red, cursor: "pointer" }}
-            >
-              ✕ Clear
-            </div>
-          )}
         </div>
       )}
     </div>
