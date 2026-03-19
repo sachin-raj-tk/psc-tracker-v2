@@ -299,10 +299,10 @@ function PapersList({ papers, syllabus, streak, onAdd, onEdit, onDelete, onView 
  * topic performance map, revision vs score correlation.
  */
 function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
-  const [dateFrom,     setDateFrom]     = useState("");
-  const [dateTo,       setDateTo]       = useState("");
-  const [editCutoff,   setEditCutoff]   = useState(false);
-  const [cutoffInput,  setCutoffInput]  = useState(cutoff || "");
+  const [dateFrom,    setDateFrom]    = useState("");
+  const [dateTo,      setDateTo]      = useState("");
+  const [editCutoff,  setEditCutoff]  = useState(false);
+  const [cutoffInput, setCutoffInput] = useState(cutoff || "");
 
   const filtered = papers.filter(p => {
     if (dateFrom && p.date && p.date < dateFrom) return false;
@@ -318,36 +318,136 @@ function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
 
   const neg = syllabus.negMark || 1 / 3;
 
-  // Subject averages
+  // ── 1. Subject averages with total question count ─────────────────────────
   const subjAvg = syllabus.subjects.map(s => {
     const vals = filtered.map(p => p.computed?.bySubject?.[s.id]?.marks || 0);
     const avg  = vals.reduce((a, b) => a + b, 0) / vals.length;
-    return { ...s, avg, avgPct: pct(avg, s.maxMarks), vals };
+    // totalQ = all correct + wrong attempts (not deleted/unattempted) across papers
+    const totalQ = filtered.reduce((acc, p) => {
+      const bs = p.computed?.bySubject?.[s.id] || {};
+      return acc + (bs.correct || 0) + (bs.wrong || 0);
+    }, 0);
+    return { ...s, avg, avgPct: pct(avg, s.maxMarks), totalQ };
   });
 
-  // Topic performance from OMR tags
+  // ── 2. Topic performance from OMR tags ────────────────────────────────────
   const topicStats = {};
   for (const paper of filtered) {
     for (const [tid, stats] of Object.entries(paper.computed?.byTopic || {})) {
       if (!topicStats[tid]) topicStats[tid] = { correct: 0, wrong: 0, total: 0 };
-      topicStats[tid].correct += stats.correct;
-      topicStats[tid].wrong   += stats.wrong;
-      topicStats[tid].total   += stats.total;
+      topicStats[tid].correct += stats.correct || 0;
+      topicStats[tid].wrong   += stats.wrong   || 0;
+      topicStats[tid].total   += stats.total   || 0;
     }
   }
 
-  // Guess totals (from manual guesswork entries)
-  let ffC = 0, ffW = 0, wgC = 0, wgW = 0;
+  // ── 3. Weak/Strong topics (min 1 question, sorted by accuracy) ────────────
+  const topicList = syllabus.subjects.flatMap(s =>
+    s.topics
+      .filter(t => topicStats[t.id] && topicStats[t.id].total > 0)
+      .map(t => {
+        const ts  = topicStats[t.id];
+        const acc = Math.round((ts.correct / ts.total) * 100);
+        return { ...t, subjName: s.name, correct: ts.correct, total: ts.total, acc };
+      })
+  );
+
+  // ── 4. Merged guesswork — prefer OMR bySubject data, fall back to manual ──
+  // OMR data stored per-subject after Calculate is clicked
+  let ffC_omr = 0, ffW_omr = 0, wgC_omr = 0, wgW_omr = 0;
+  for (const p of filtered) {
+    for (const bs of Object.values(p.computed?.bySubject || {})) {
+      ffC_omr += bs.ffCorrect  || 0;
+      ffW_omr += bs.ffWrong    || 0;
+      wgC_omr += bs.wildCorrect || 0;
+      wgW_omr += bs.wildWrong  || 0;
+    }
+  }
+  // Manual tab data (fallback when OMR guess tagging was not used)
+  let ffC_man = 0, ffW_man = 0, wgC_man = 0, wgW_man = 0;
   for (const p of filtered) {
     const g = p.guesses || {};
-    ffC += parseInt(g.ff_correct) || 0;
-    ffW += parseInt(g.ff_wrong)   || 0;
-    wgC += parseInt(g.wg_correct) || 0;
-    wgW += parseInt(g.wg_wrong)   || 0;
+    ffC_man += parseInt(g.ff_correct) || 0;
+    ffW_man += parseInt(g.ff_wrong)   || 0;
+    wgC_man += parseInt(g.wg_correct) || 0;
+    wgW_man += parseInt(g.wg_wrong)   || 0;
   }
-  const breakeven = Math.round(1 / (1 + neg) * 100);
+  // Use OMR data if any guesses were tagged in OMR; else use manual
+  const hasOMRGuess = (ffC_omr + ffW_omr + wgC_omr + wgW_omr) > 0;
+  const ffC = hasOMRGuess ? ffC_omr : ffC_man;
+  const ffW = hasOMRGuess ? ffW_omr : ffW_man;
+  const wgC = hasOMRGuess ? wgC_omr : wgC_man;
+  const wgW = hasOMRGuess ? wgW_omr : wgW_man;
 
-  // Revision vs score
+  const breakeven = Math.round(1 / (1 + neg) * 100);
+  const ffNet     = ffC - ffW * neg;
+  const wgNet     = wgC - wgW * neg;
+
+  // Subject-wise guess breakdown (from OMR data)
+  const subjGuess = syllabus.subjects.map(s => {
+    let fc = 0, fw = 0, wc = 0, ww = 0;
+    for (const p of filtered) {
+      const bs = p.computed?.bySubject?.[s.id] || {};
+      fc += bs.ffCorrect   || 0;
+      fw += bs.ffWrong     || 0;
+      wc += bs.wildCorrect || 0;
+      ww += bs.wildWrong   || 0;
+    }
+    return { ...s, fc, fw, wc, ww, total: fc + fw + wc + ww,
+      ffNet: fc - fw * neg, wgNet: wc - ww * neg };
+  }).filter(s => s.total > 0);
+
+  // ── 5. Score consistency (population std deviation) ───────────────────────
+  const scores   = filtered.map(p => p.computed?.totalMarks ?? 0);
+  const scoreAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const stdDev   = scores.length > 1
+    ? Math.sqrt(scores.reduce((a, x) => a + Math.pow(x - scoreAvg, 2), 0) / scores.length)
+    : 0;
+  const consistLabel =
+    stdDev < 5  ? "Very Consistent" :
+    stdDev < 10 ? "Consistent"      :
+    stdDev < 15 ? "Variable"        : "Inconsistent";
+  const consistColor =
+    stdDev < 5  ? T.green  :
+    stdDev < 10 ? T.yellow :
+    stdDev < 15 ? T.orange : T.red;
+
+  // ── 6. Improvement rate (first half vs second half by date) ───────────────
+  const byDate     = [...filtered].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const mid        = Math.ceil(byDate.length / 2);
+  const firstHalf  = byDate.slice(0, mid);
+  const secondHalf = byDate.slice(mid);
+  const avgFirst   = firstHalf.length
+    ? firstHalf.reduce((a, p) => a + (p.computed?.totalMarks ?? 0), 0) / firstHalf.length
+    : 0;
+  const avgSecond  = secondHalf.length
+    ? secondHalf.reduce((a, p) => a + (p.computed?.totalMarks ?? 0), 0) / secondHalf.length
+    : 0;
+  const improvDelta = avgSecond - avgFirst;
+  const canShowImprovement = secondHalf.length > 0;
+
+  // ── 7. Unattempted by subject ─────────────────────────────────────────────
+  const unattempted = syllabus.subjects.map(s => {
+    const avgUn = filtered.reduce((acc, p) => {
+      const bs = p.computed?.bySubject?.[s.id] || {};
+      const un = Math.max(0,
+        s.maxMarks - (bs.correct || 0) - (bs.wrong || 0) - (bs.deleted || 0)
+      );
+      return acc + un;
+    }, 0) / filtered.length;
+    return { ...s, avgUn };
+  }).filter(s => s.avgUn >= 0.5); // only show subjects with meaningful unattempted avg
+
+  // ── 8. Subject contribution to total score ────────────────────────────────
+  const totalScoreAvg = subjAvg.reduce((a, s) => a + s.avg, 0);
+  const subjContrib   = [...subjAvg]
+    .sort((a, b) => b.avg - a.avg)
+    .map(s => ({
+      ...s,
+      contrib: totalScoreAvg > 0 ? Math.round((s.avg / totalScoreAvg) * 100) : 0,
+    }));
+
+  // ── 9. Revision vs score correlation ──────────────────────────────────────
   const corrData = syllabus.subjects.flatMap(s =>
     s.topics
       .filter(t => (t.revisionCount || 0) > 0 && topicStats[t.id]?.total > 0)
@@ -358,9 +458,19 @@ function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
       }))
   );
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  // Net verdict badge — based on actual net marks, not accuracy
+  const verdictBadge = (net, c, w) => {
+    if (c + w === 0) return null;
+    const label = net >= 0
+      ? "✓ +" + net.toFixed(2) + " marks"
+      : "✗ " + net.toFixed(2) + " marks";
+    return <Badge label={label} color={net >= 0 ? T.green : T.red} />;
+  };
+
   return (
     <div>
-      {/* Date filter + cutoff */}
+      {/* ── Date filter + cutoff ── */}
       <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
         <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
           style={{ ...inputStyle, width: 150, fontSize: 12 }} />
@@ -382,8 +492,7 @@ function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
         <Modal title="Set Cutoff Score" onClose={() => setEditCutoff(false)}>
           <label style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 12, color: T.text2 }}>
-              Enter the known PSC cutoff mark for this exam (e.g. 65).
-              It will appear as a line on the score trend chart.
+              Enter the known PSC cutoff for this exam (e.g. 65).
             </span>
             <input type="number" min={0} max={100} value={cutoffInput}
               onChange={e => setCutoffInput(e.target.value)}
@@ -391,22 +500,20 @@ function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
           </label>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <button onClick={() => setEditCutoff(false)} style={btnGhost}>Cancel</button>
-            <button
-              onClick={() => { onSetCutoff(parseFloat(cutoffInput) || null); setEditCutoff(false); }}
+            <button onClick={() => { onSetCutoff(parseFloat(cutoffInput) || null); setEditCutoff(false); }}
               style={btnPrimary(T.accent)}>Save</button>
           </div>
         </Modal>
       )}
 
-      {/* Score trend with cutoff line */}
+      {/* ── Score Trend ── */}
       <Section title="📈 Score Trend" accent={T.accent}>
         <div style={{ position: "relative" }}>
           {cutoff && (
             <div style={{
               position: "absolute", left: 0, right: 0,
-              bottom: `${(cutoff / 100) * 80 + 16}px`,
-              borderTop: `2px dashed ${T.yellow}`,
-              zIndex: 1,
+              bottom: (cutoff / 100 * 80 + 16) + "px",
+              borderTop: "2px dashed " + T.yellow, zIndex: 1,
             }}>
               <span style={{ position: "absolute", right: 0, top: -16, fontSize: 10, color: T.yellow }}>
                 Cutoff {cutoff}
@@ -414,18 +521,20 @@ function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
             </div>
           )}
           <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 100, position: "relative" }}>
-            {[...filtered].sort((a, b) => (a.date || "").localeCompare(b.date || "")).map((p, i) => {
-              const sc  = p.computed?.totalMarks ?? 0;
-              const maxSc = Math.max(...filtered.map(x => x.computed?.totalMarks ?? 0), 1);
-              const h   = Math.max(6, (sc / maxSc) * 80);
-              const col = scoreColor(pct(sc, 100));
+            {byDate.map((p, i) => {
+              const sc    = p.computed?.totalMarks ?? 0;
+              const maxSc = Math.max(...byDate.map(x => x.computed?.totalMarks ?? 0), 1);
+              const h     = Math.max(6, (sc / maxSc) * 80);
+              const col   = scoreColor(pct(sc, 100));
               return (
-                <div key={p.id} title={`${p.name || p.code}: ${sc.toFixed(1)}`}
+                <div key={p.id} title={(p.name || p.code) + ": " + sc.toFixed(1)}
                   style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                   <span style={{ fontSize: 9, color: col, fontFamily: "monospace" }}>{sc.toFixed(0)}</span>
-                  <div style={{ width: "100%", height: h, background: col + "88", borderRadius: "3px 3px 0 0", border: `1px solid ${col}` }} />
-                  <span style={{ fontSize: 8, color: T.text3, maxWidth: 36, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {p.name || `P${i + 1}`}
+                  <div style={{ width: "100%", height: h, background: col + "88",
+                    borderRadius: "3px 3px 0 0", border: "1px solid " + col }} />
+                  <span style={{ fontSize: 8, color: T.text3, maxWidth: 36,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {p.name || ("P" + (i + 1))}
                   </span>
                 </div>
               );
@@ -434,79 +543,280 @@ function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
         </div>
       </Section>
 
-      {/* Subject performance */}
+      {/* ── Subject-wise Average ── */}
       <Section title="📊 Subject-wise Average" accent={T.purple}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {[...subjAvg].sort((a, b) => a.avgPct - b.avgPct).map(s => (
-            <div key={s.id} style={{ display: "grid", gridTemplateColumns: "170px 1fr 70px 60px", gap: 10, alignItems: "center" }}>
+            <div key={s.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 70px 60px", gap: 10, alignItems: "center" }}>
               <span style={{ fontSize: 12, color: s.avgPct < 40 ? T.red : T.text2 }}>{s.name}</span>
               <Bar value={s.avg} max={s.maxMarks} height={8} />
-              <span style={{ fontFamily: "monospace", fontSize: 11, color: T.text3 }}>{s.avg.toFixed(1)}/{s.maxMarks}</span>
-              <Badge label={`${s.avgPct}%`} color={scoreColor(s.avgPct)} />
+              <span style={{ fontFamily: "monospace", fontSize: 11, color: T.text3, textAlign: "right" }}>
+                {s.avg.toFixed(1)}/{s.maxMarks}
+              </span>
+              <Badge label={s.avgPct + "%"} color={scoreColor(s.avgPct)} />
             </div>
           ))}
         </div>
       </Section>
 
-      {/* Weak / Strong */}
+      {/* ── Weak / Strong Subjects (with Q count) ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
         {[
-          { title: "🔴 Weakest",   data: [...subjAvg].sort((a, b) => a.avgPct - b.avgPct).slice(0, 3), color: T.red   },
-          { title: "🟢 Strongest", data: [...subjAvg].sort((a, b) => b.avgPct - a.avgPct).slice(0, 3), color: T.green },
+          { title: "🔴 Weakest Subjects",   data: [...subjAvg].sort((a, b) => a.avgPct - b.avgPct).slice(0, 3), color: T.red   },
+          { title: "🟢 Strongest Subjects", data: [...subjAvg].sort((a, b) => b.avgPct - a.avgPct).slice(0, 3), color: T.green },
         ].map(({ title, data, color }) => (
           <Section key={title} title={title} accent={color}>
             {data.map((s, i) => (
-              <div key={s.id} style={{ marginBottom: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: T.text }}>#{i + 1} {s.name}</span>
+              <div key={s.id} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ fontSize: 12, color: T.text }}>{"#" + (i + 1) + " " + s.name}</span>
                   <span style={{ fontSize: 11, fontFamily: "monospace", color }}>{s.avgPct}%</span>
                 </div>
                 <Bar value={s.avg} max={s.maxMarks} />
+                <div style={{ fontSize: 10, color: T.text3, marginTop: 3 }}>
+                  {"from " + s.totalQ + " question" + (s.totalQ !== 1 ? "s" : "")}
+                </div>
               </div>
             ))}
           </Section>
         ))}
       </div>
 
-      {/* Guess strategy */}
-      <Section title="🎲 Guesswork Strategy" accent={T.yellow}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+      {/* ── Weak / Strong Topics (with Q count) ── */}
+      {topicList.length >= 2 && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
           {[
-            { label: "50:50 Overall", c: ffC, w: ffW, color: T.cyan   },
-            { label: "Wild Guess",    c: wgC, w: wgW, color: T.orange },
-          ].map(row => {
-            const acc = guessAccuracy(row.c, row.w);
-            const net = (row.c - row.w * neg).toFixed(2);
-            return (
-              <div key={row.label} style={{ border: `1px solid ${row.color}44`, borderRadius: 8, padding: 14, textAlign: "center" }}>
-                <div style={{ fontSize: 11, color: row.color, marginBottom: 8, fontWeight: 600 }}>{row.label}</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: row.color, fontFamily: "monospace" }}>
-                  {acc !== null ? `${acc}%` : "—"}
+            { title: "🔴 Weakest Topics",   data: [...topicList].sort((a, b) => a.acc - b.acc).slice(0, 3),  color: T.red   },
+            { title: "🟢 Strongest Topics", data: [...topicList].sort((a, b) => b.acc - a.acc).slice(0, 3), color: T.green },
+          ].map(({ title, data, color }) => (
+            <Section key={title} title={title} accent={color}>
+              {data.map((t, i) => (
+                <div key={t.id} style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 11, color: T.text }}>{"#" + (i + 1) + " " + t.name}</span>
+                    <span style={{ fontSize: 11, fontFamily: "monospace", color }}>{t.acc}%</span>
+                  </div>
+                  <Bar value={t.acc} max={100} />
+                  <div style={{ fontSize: 10, color: T.text3, marginTop: 3 }}>
+                    {t.correct + "/" + t.total + " Qs · " + t.subjName}
+                  </div>
                 </div>
-                <div style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>Net: {net} marks</div>
-                {acc !== null && (
-                  <Badge label={acc >= breakeven ? "✓ Profitable" : "✗ Losing marks"}
-                    color={acc >= breakeven ? T.green : T.red} />
-                )}
+              ))}
+            </Section>
+          ))}
+        </div>
+      )}
+
+      {/* ── Guesswork Strategy ── */}
+      <Section title="🎲 Guesswork Strategy" accent={T.yellow}>
+        {/* Source indicator */}
+        <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>
+          {"Source: " + (hasOMRGuess ? "OMR guess tags (per-question)" : "Manual guesswork tab")}
+        </div>
+
+        {/* Overall cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+          {[
+            { label: "🎯 50:50 Guess", c: ffC, w: ffW, net: ffNet, color: T.cyan   },
+            { label: "🎲 Wild Guess",  c: wgC, w: wgW, net: wgNet, color: T.orange },
+          ].map(row => {
+            const acc = row.c + row.w > 0 ? Math.round(row.c / (row.c + row.w) * 100) : null;
+            return (
+              <div key={row.label} style={{ border: "1px solid " + row.color + "44",
+                borderRadius: 8, padding: 14, textAlign: "center" }}>
+                <div style={{ fontSize: 11, color: row.color, marginBottom: 6, fontWeight: 600 }}>
+                  {row.label}
+                </div>
+                <div style={{ fontSize: 26, fontWeight: 900, color: row.color, fontFamily: "monospace" }}>
+                  {acc !== null ? acc + "%" : "—"}
+                </div>
+                <div style={{ fontSize: 10, color: T.text3, margin: "4px 0 6px" }}>
+                  {row.c}✓ {row.w}✗ · Net: {row.net >= 0 ? "+" : ""}{row.net.toFixed(2)}
+                </div>
+                {verdictBadge(row.net, row.c, row.w)}
               </div>
             );
           })}
-          <div style={{ border: `1px solid ${T.yellow}44`, borderRadius: 8, padding: 14 }}>
-            <div style={{ fontSize: 11, color: T.yellow, fontWeight: 600, marginBottom: 8 }}>Break-even Rule</div>
+          <div style={{ border: "1px solid " + T.yellow + "44", borderRadius: 8, padding: 14 }}>
+            <div style={{ fontSize: 11, color: T.yellow, fontWeight: 600, marginBottom: 8 }}>
+              Break-even Rule
+            </div>
             <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.7 }}>
-              Need <strong style={{ color: T.yellow }}>{breakeven}%</strong> guess accuracy
-              to break even with {(neg * 100).toFixed(0)}% negative marking.
+              Need{" "}
+              <strong style={{ color: T.yellow }}>{breakeven}%</strong>
+              {" "}accuracy to break even with{" "}
+              {Math.round(neg * 100)}% negative marking.
             </div>
           </div>
         </div>
+
+        {/* Subject-wise guess breakdown */}
+        {subjGuess.length > 0 && (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.text3,
+              textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+              Subject-wise Guess Breakdown
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <thead>
+                  <tr>
+                    {["Subject","50:50 ✓","50:50 ✗","50:50 Net","Wild ✓","Wild ✗","Wild Net"].map(h => (
+                      <th key={h} style={{ padding: "5px 8px", color: T.text3, fontSize: 10,
+                        textAlign: h === "Subject" ? "left" : "center",
+                        borderBottom: "1px solid " + T.border,
+                        textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {subjGuess.map(s => (
+                    <tr key={s.id} style={{ borderBottom: "1px solid " + T.border }}>
+                      <td style={{ padding: "7px 8px", color: T.text2, fontSize: 12 }}>{s.name}</td>
+                      <td style={{ padding: "7px 8px", textAlign: "center", color: T.green,  fontFamily: "monospace" }}>{s.fc}</td>
+                      <td style={{ padding: "7px 8px", textAlign: "center", color: T.red,    fontFamily: "monospace" }}>{s.fw}</td>
+                      <td style={{ padding: "7px 8px", textAlign: "center",
+                        color: s.ffNet >= 0 ? T.green : T.red, fontFamily: "monospace", fontWeight: 700 }}>
+                        {s.ffNet >= 0 ? "+" : ""}{s.ffNet.toFixed(2)}
+                      </td>
+                      <td style={{ padding: "7px 8px", textAlign: "center", color: T.green,  fontFamily: "monospace" }}>{s.wc}</td>
+                      <td style={{ padding: "7px 8px", textAlign: "center", color: T.red,    fontFamily: "monospace" }}>{s.ww}</td>
+                      <td style={{ padding: "7px 8px", textAlign: "center",
+                        color: s.wgNet >= 0 ? T.green : T.red, fontFamily: "monospace", fontWeight: 700 }}>
+                        {s.wgNet >= 0 ? "+" : ""}{s.wgNet.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </Section>
 
-      {/* Topic performance — grouped by subject, sorted by total desc then accuracy desc */}
+      {/* ── Score Consistency + Improvement Rate ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        <Section title="📐 Score Consistency" accent={consistColor}>
+          <div style={{ textAlign: "center", padding: "8px 0" }}>
+            <div style={{ fontSize: 28, fontWeight: 900, color: consistColor, fontFamily: "monospace" }}>
+              {consistLabel}
+            </div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>
+              {"Std deviation: " + stdDev.toFixed(1) + " marks"}
+            </div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>
+              {"Avg: " + scoreAvg.toFixed(1) + " · Range: " +
+                Math.min(...scores).toFixed(0) + "–" + Math.max(...scores).toFixed(0)}
+            </div>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 10, color: T.text3, lineHeight: 1.6 }}>
+            {"<5 = Very Consistent · <10 = Consistent · <15 = Variable · ≥15 = Inconsistent"}
+          </div>
+        </Section>
+
+        <Section title="📊 Improvement Rate" accent={canShowImprovement && improvDelta >= 0 ? T.green : T.orange}>
+          {canShowImprovement ? (
+            <div style={{ textAlign: "center", padding: "8px 0" }}>
+              <div style={{ fontSize: 32, fontWeight: 900, fontFamily: "monospace",
+                color: improvDelta >= 0 ? T.green : T.red }}>
+                {improvDelta >= 0 ? "+" : ""}{improvDelta.toFixed(1)}
+              </div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>marks improvement</div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 8 }}>
+                {"First " + firstHalf.length + ": " + avgFirst.toFixed(1) +
+                 " → Last " + secondHalf.length + ": " + avgSecond.toFixed(1)}
+              </div>
+            </div>
+          ) : (
+            <div style={{ textAlign: "center", padding: 20, color: T.text3, fontSize: 12 }}>
+              Need at least 2 papers to show improvement trend.
+            </div>
+          )}
+        </Section>
+      </div>
+
+      {/* ── Unattempted Question Analysis ── */}
+      {unattempted.length > 0 && (
+        <Section title="⬜ Unattempted Questions by Subject" accent={T.orange}>
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 10 }}>
+            Average questions left blank per paper (excluding deleted). Only subjects with avg ≥ 0.5 shown.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {[...unattempted].sort((a, b) => b.avgUn - a.avgUn).map(s => (
+              <div key={s.id} style={{ display: "grid",
+                gridTemplateColumns: "1fr 1fr 70px", gap: 10, alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: T.text2 }}>{s.name}</span>
+                <Bar value={s.avgUn} max={s.maxMarks} height={8} />
+                <span style={{ fontFamily: "monospace", fontSize: 11, color: T.orange, textAlign: "right" }}>
+                  {s.avgUn.toFixed(1)}/{s.maxMarks}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* ── Subject Contribution ── */}
+      <Section title="🥧 Subject Contribution to Score" accent={T.teal}>
+        <div style={{ fontSize: 11, color: T.text3, marginBottom: 10 }}>
+          Each subject's average marks as a share of your total average score.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {subjContrib.map((s, i) => {
+            const sColor = T.subjectColors[i % T.subjectColors.length] || T.accent;
+            return (
+              <div key={s.id} style={{ display: "grid",
+                gridTemplateColumns: "1fr 1fr 50px 50px", gap: 10, alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: T.text2 }}>{s.name}</span>
+                <Bar value={s.avg} max={Math.max(...subjContrib.map(x => x.avg), 1)} height={8} />
+                <span style={{ fontFamily: "monospace", fontSize: 11, color: sColor, textAlign: "right" }}>
+                  {s.avg.toFixed(1)}
+                </span>
+                <Badge label={s.contrib + "%"} color={sColor} />
+              </div>
+            );
+          })}
+        </div>
+      </Section>
+
+      {/* ── Score vs Cutoff Gap (only when cutoff is set) ── */}
+      {cutoff && (
+        <Section title={"🎯 Score vs Cutoff (" + cutoff + ")"} accent={T.yellow}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {byDate.map(p => {
+              const sc  = p.computed?.totalMarks ?? 0;
+              const gap = sc - cutoff;
+              const col = gap >= 0 ? T.green : T.red;
+              return (
+                <div key={p.id} style={{ display: "grid",
+                  gridTemplateColumns: "1fr auto auto", gap: 10, alignItems: "center",
+                  padding: "6px 10px", borderRadius: 6,
+                  background: T.surface, border: "1px solid " + T.border }}>
+                  <span style={{ fontSize: 12, color: T.text2 }}>
+                    {p.name || p.code || "Paper"}
+                    {p.date && (
+                      <span style={{ fontSize: 10, color: T.text3, marginLeft: 8 }}>{p.date}</span>
+                    )}
+                  </span>
+                  <span style={{ fontFamily: "monospace", fontSize: 12, color: scoreColor(pct(sc, 100)) }}>
+                    {sc.toFixed(1)}
+                  </span>
+                  <span style={{ fontFamily: "monospace", fontSize: 12,
+                    color: col, fontWeight: 700, minWidth: 60, textAlign: "right" }}>
+                    {gap >= 0 ? "+" : ""}{gap.toFixed(1)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* ── Topic Performance ── */}
       {Object.keys(topicStats).length > 0 && (
         <Section title="📌 Topic Performance (from OMR tags)" accent={T.cyan}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {syllabus.subjects.map(subj => {
-              // Collect topics from this subject that appear in topicStats
               const subjTopics = subj.topics
                 .filter(t => topicStats[t.id])
                 .map(t => ({
@@ -516,62 +826,44 @@ function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
                     ? Math.round(topicStats[t.id].correct / topicStats[t.id].total * 100)
                     : 0,
                 }))
-                // Sort: most questions first, then accuracy descending as tiebreaker
                 .sort((a, b) =>
                   b.stats.total !== a.stats.total
                     ? b.stats.total - a.stats.total
                     : b.acc - a.acc
                 );
-
               if (subjTopics.length === 0) return null;
-
-              // Find subject colour from index
-              const sIdx = syllabus.subjects.findIndex(s => s.id === subj.id);
+              const sIdx   = syllabus.subjects.findIndex(s => s.id === subj.id);
               const sColor = T.subjectColors[sIdx % T.subjectColors.length] || T.accent;
-
               return (
                 <div key={subj.id}>
-                  {/* Subject header */}
-                  <div style={{
-                    fontSize: 11, fontWeight: 700, color: sColor,
+                  <div style={{ fontSize: 11, fontWeight: 700, color: sColor,
                     textTransform: "uppercase", letterSpacing: "0.08em",
-                    borderBottom: `1px solid ${sColor}33`,
+                    borderBottom: "1px solid " + sColor + "33",
                     paddingBottom: 5, marginBottom: 8,
-                    display: "flex", justifyContent: "space-between",
-                  }}>
+                    display: "flex", justifyContent: "space-between" }}>
                     <span>{subj.name}</span>
                     <span style={{ fontWeight: 400, color: T.text3, fontSize: 10 }}>
-                      {subjTopics.length} topic{subjTopics.length !== 1 ? "s" : ""}
+                      {subjTopics.length + " topic" + (subjTopics.length !== 1 ? "s" : "")}
                     </span>
                   </div>
-
-                  {/* Topic rows */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {subjTopics.map(t => (
-                      <div key={t.id} style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr auto auto",
-                        gap: 10, alignItems: "center",
+                      <div key={t.id} style={{ display: "grid",
+                        gridTemplateColumns: "1fr auto auto", gap: 10, alignItems: "center",
                         padding: "6px 10px", borderRadius: 6,
-                        background: T.surface,
-                        border: `1px solid ${T.border}`,
-                      }}>
-                        {/* Topic name with [N] if available */}
+                        background: T.surface, border: "1px solid " + T.border }}>
                         <span style={{ fontSize: 12, color: T.text2, minWidth: 0 }}>
                           {t.topicNo
-                            ? <span style={{ fontSize: 10, color: T.text3, marginRight: 5, fontFamily: "monospace" }}>[{t.topicNo}]</span>
+                            ? <span style={{ fontSize: 10, color: T.text3,
+                                marginRight: 5, fontFamily: "monospace" }}>{"[" + t.topicNo + "]"}</span>
                             : null}
                           {t.name}
                         </span>
-                        {/* correct/total */}
-                        <span style={{
-                          fontFamily: "monospace", fontSize: 12,
-                          color: T.text3, whiteSpace: "nowrap",
-                        }}>
-                          {t.stats.correct}/{t.stats.total}
+                        <span style={{ fontFamily: "monospace", fontSize: 12,
+                          color: T.text3, whiteSpace: "nowrap" }}>
+                          {t.stats.correct + "/" + t.stats.total}
                         </span>
-                        {/* accuracy badge */}
-                        <Badge label={`${t.acc}%`} color={scoreColor(t.acc)} />
+                        <Badge label={t.acc + "%"} color={scoreColor(t.acc)} />
                       </div>
                     ))}
                   </div>
@@ -582,18 +874,20 @@ function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
         </Section>
       )}
 
-      {/* Revision vs accuracy */}
+      {/* ── Revision vs Accuracy ── */}
       {corrData.length > 0 && (
         <Section title="📈 Revision vs Accuracy" accent={T.pink}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {corrData.sort((a, b) => b.revisions - a.revisions).map(item => (
-              <div key={item.name} style={{ display: "grid", gridTemplateColumns: "1fr 70px 1fr 60px", gap: 10, alignItems: "center" }}>
+            {[...corrData].sort((a, b) => b.revisions - a.revisions).map(item => (
+              <div key={item.name} style={{ display: "grid",
+                gridTemplateColumns: "1fr 70px 1fr 60px", gap: 10, alignItems: "center" }}>
                 <span style={{ fontSize: 12, color: T.text2 }}>{item.name}</span>
-                <span style={{ fontFamily: "monospace", fontSize: 11, color: T.purple, textAlign: "center" }}>
-                  {item.revisions}× rev
+                <span style={{ fontFamily: "monospace", fontSize: 11,
+                  color: T.purple, textAlign: "center" }}>
+                  {item.revisions + "x rev"}
                 </span>
                 <Bar value={item.accuracy} max={100} />
-                <Badge label={`${item.accuracy}%`} color={scoreColor(item.accuracy)} />
+                <Badge label={item.accuracy + "%"} color={scoreColor(item.accuracy)} />
               </div>
             ))}
           </div>
@@ -602,6 +896,7 @@ function Analytics({ papers, syllabus, cutoff, onSetCutoff }) {
     </div>
   );
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SYLLABI PAGE
