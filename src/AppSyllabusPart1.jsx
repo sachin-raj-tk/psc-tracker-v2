@@ -170,7 +170,7 @@ export function AnswerKeyUploader({ existing, onParsed, syllabus }) {
           let xml = "";
           for (let i = 0; i < bytes.length; i++) xml += String.fromCharCode(bytes[i]);
           const runs = [];
-          const re = /<w:t[^>]*>([^<]+)</w:t>/g;
+          const re = new RegExp("<w:t[^>]*>([^<]+)</" + "w:t>", "g");
           let m;
           while ((m = re.exec(xml)) !== null) runs.push(m[1]);
           resolve(runs.join(" "));
