@@ -351,7 +351,7 @@ export function TopicMapImporter({ syllabus, currentOMR, onApply, onClose }) {
       const re = new RegExp("<w:t[^>]*>([^<]+)</" + "w:t>", "g");
       let m;
       while ((m = re.exec(xml)) !== null) runs.push(m[1]);
-      const rawText = runs.join(" ");
+      const rawText = runs.join("\n");
 
       const { qToTopicNo, warnings: w } = parseTopicMapDocx(rawText);
       setWarnings(w);

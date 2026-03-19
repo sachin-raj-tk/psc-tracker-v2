@@ -294,7 +294,9 @@ export function parseTopicMapDocx(rawText) {
       const topicNo = parseInt(r0);
       if (r2 !== "---") {
         r2.split(",").forEach(s => {
-          const q = parseInt(s.trim());
+          // Strip trailing annotations like * (marks deleted questions)
+          const qStr = s.trim().replace(/[^\d]/g, "");
+          const q = parseInt(qStr);
           if (!isNaN(q) && q >= 1 && q <= 200) {
             if (qToTopicNo[q] !== undefined) {
               warnings.push(`Q${q} appears under multiple topics. Using topic ${topicNo}.`);
