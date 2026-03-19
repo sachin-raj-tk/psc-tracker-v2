@@ -18,6 +18,10 @@ import {
   parseAnswerKeyText,
 } from "./AppSyllabusPart1a";
 
+// Re-export components that live in Part1a so AppSyllabusPart2 only
+// needs to import from Part1b (single import source for all UI components)
+export { AnswerKeyUploader, SmartOMR } from "./AppSyllabusPart1a";
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SYLLABUS IMPORTER — upload docx, preview parsed structure, confirm
 // ═══════════════════════════════════════════════════════════════════════════════
