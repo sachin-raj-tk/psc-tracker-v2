@@ -296,7 +296,7 @@ export function computeScoreFromOMR(omr, keyAnswers, syllabus, rangeOverride = {
   let totalCorrect = 0, totalWrong = 0, totalDeleted = 0, totalUnattempted = 0;
 
   for (let q = 1; q <= 100; q++) {
-    const entry    = omr[q] || {};
+    const entry    = omr[String(q)] || omr[q] || {};  // string key (JSON) or integer key (new)
     const keyAns   = keyAnswers ? (keyAnswers[String(q)] || null) : null;
     const myAns    = entry.answer || null;
     const isDeleted = keyAns === "X";

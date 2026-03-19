@@ -12,7 +12,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   T, inputStyle, btnPrimary, btnGhost, cardStyle,
   uid, pct, scoreColor, fmtDate, clamp,
@@ -30,11 +30,16 @@ export const buildTopicOptions = (syllabus) =>
     (s.topics || []).map(t => ({ id: t.id, label: t.name, group: s.name }))
   );
 
-/** Generate an empty OMR object (100 questions, all null) */
+/**
+ * Generate an empty OMR object (100 questions, all null).
+ * IMPORTANT: Keys are STRINGS ("1"..."100") to match JSON round-trip behaviour.
+ * JSON.parse always produces string keys for numeric object keys.
+ * Using string keys here ensures { ...emptyOMR(), ...savedOMR } merges correctly.
+ */
 export const emptyOMR = () => {
   const omr = {};
   for (let i = 1; i <= 100; i++) {
-    omr[i] = { answer: null, isGuess: false, guessType: null, topicId: null, subjectOverride: null };
+    omr[String(i)] = { answer: null, isGuess: false, guessType: null, topicId: null, subjectOverride: null };
   }
   return omr;
 };
@@ -133,59 +138,54 @@ export function parseAnswerKeyText(rawText) {
 }
 
 /**
- * AnswerKeyUploader component.
- * Renders an upload button + parse result summary.
- * On success, calls onParsed(parsedKey).
+ * AnswerKeyUploader — upload, parse, display, and manually edit an answer key.
+ *
+ * After upload the full parsed table is shown (all booklets side-by-side for
+ * multi-booklet, single column for single-booklet). Every cell is directly
+ * editable so the user can fix any parse errors before saving.
+ *
+ * Allowed cell values: A, B, C, D, X (deleted). Invalid values are highlighted.
  */
 export function AnswerKeyUploader({ existing, onParsed, syllabus }) {
-  const [status, setStatus]     = useState(null); // null | "parsing" | "done" | "error"
-  const [result, setResult]     = useState(existing || null);
+  const [status,   setStatus]   = useState(existing ? "done" : null);
+  const [result,   setResult]   = useState(existing || null);
   const [errorMsg, setErrorMsg] = useState("");
-  const [confirm, setConfirm]   = useState(false);
-  const fileRef                 = useRef();
+  const [confirm,  setConfirm]  = useState(false);
+  const [viewBooklet, setViewBooklet] = useState(
+    existing?.type === "multi" ? "A" : existing?.singleCode || "A"
+  );
+  const fileRef = useRef();
 
+  // ── Docx extraction ──────────────────────────────────────────────────────
   const handleFile = async (file) => {
     if (!file) return;
-    if (!file.name.endsWith(".docx")) {
-      setErrorMsg("Only .docx files are accepted for answer keys.");
-      return;
-    }
-    if (file.size > 3 * 1024 * 1024) {
-      setErrorMsg("File is over 3MB. Please use a smaller file.");
-      return;
-    }
-    setStatus("parsing");
-    setErrorMsg("");
-
+    if (!file.name.endsWith(".docx")) { setErrorMsg("Only .docx files are accepted."); return; }
+    if (file.size > 3 * 1024 * 1024) { setErrorMsg("File is over 3MB."); return; }
+    setStatus("parsing"); setErrorMsg("");
     try {
-      // Read file as ArrayBuffer, extract text via FileReader
       const text = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => {
-          // Extract raw text from docx (XML-based) using a simple regex approach
-          // Works for PSC answer key tables which are plain ASCII
           const bytes = new Uint8Array(e.target.result);
           let xml = "";
-          // Find word/document.xml in the ZIP
-          // We decode the full buffer as Latin-1 to find text runs
           for (let i = 0; i < bytes.length; i++) xml += String.fromCharCode(bytes[i]);
-          // Extract text runs <w:t>...</w:t>
-          const textRuns = [];
-          const re = /<w:t[^>]*>([^<]+)<\/w:t>/g;
+          const runs = [];
+          const re = /<w:t[^>]*>([^<]+)</w:t>/g;
           let m;
-          while ((m = re.exec(xml)) !== null) textRuns.push(m[1]);
-          resolve(textRuns.join(" "));
+          while ((m = re.exec(xml)) !== null) runs.push(m[1]);
+          resolve(runs.join(" "));
         };
         reader.onerror = reject;
         reader.readAsArrayBuffer(file);
       });
-
       const parsed = parseAnswerKeyText(text);
       parsed.fileName = file.name;
+      const initBooklet = parsed.type === "multi" ? "A" : parsed.singleCode || "A";
+      setViewBooklet(initBooklet);
       setResult(parsed);
       setStatus("done");
       onParsed(parsed);
-    } catch (e) {
+    } catch {
       setStatus("error");
       setErrorMsg("Could not parse the file. Make sure it is a valid .docx answer key.");
     }
@@ -197,9 +197,54 @@ export function AnswerKeyUploader({ existing, onParsed, syllabus }) {
     fileRef.current?.click();
   };
 
+  // ── Cell edit handler ─────────────────────────────────────────────────────
+  // Allows user to fix any incorrectly parsed answer directly in the grid.
+  const handleCellEdit = (q, booklet, val) => {
+    const v = val.toUpperCase().trim();
+    if (!["A","B","C","D","X",""].includes(v)) return; // only valid values
+    setResult(prev => {
+      const next = { ...prev };
+      if (next.type === "multi") {
+        next.booklets = { ...next.booklets, [booklet]: { ...next.booklets[booklet], [String(q)]: v || null } };
+        // Keep deletedQuestions in sync
+        const delArr = Object.entries(next.booklets[booklet])
+          .filter(([,ans]) => ans === "X").map(([k]) => parseInt(k));
+        next.deletedQuestions = { ...next.deletedQuestions, [booklet]: delArr };
+      } else {
+        next.singleAnswers = { ...next.singleAnswers, [String(q)]: v || null };
+        const delArr = Object.entries(next.singleAnswers)
+          .filter(([,ans]) => ans === "X").map(([k]) => parseInt(k));
+        next.deletedQuestions = { ...next.deletedQuestions, [next.singleCode]: delArr };
+      }
+      onParsed(next); // propagate each edit immediately
+      return next;
+    });
+  };
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
   const bookletLetters = result
     ? (result.type === "multi" ? ["A","B","C","D"] : [result.singleCode])
     : [];
+
+  const getAnswers = (bl) => {
+    if (!result) return {};
+    if (result.type === "multi")  return result.booklets?.[bl] || {};
+    return result.singleAnswers || {};
+  };
+
+  const VALID = ["A","B","C","D","X"];
+
+  // Cell colour: X=red, missing=yellow, valid=normal
+  const cellColor = (val) => {
+    if (!val)       return T.yellow;
+    if (val === "X") return T.red;
+    return T.text;
+  };
+  const cellBg = (val) => {
+    if (!val)       return T.yellow + "22";
+    if (val === "X") return T.red + "22";
+    return T.surface;
+  };
 
   return (
     <div>
@@ -208,49 +253,194 @@ export function AnswerKeyUploader({ existing, onParsed, syllabus }) {
 
       {confirm && (
         <ConfirmDialog
-          message="An answer key is already uploaded for this paper."
-          detail="Uploading a new one will replace the existing key and clear any calculated scores."
-          confirmLabel="Replace"
-          danger
+          message="Replace the existing answer key?"
+          detail="Any manual corrections you made will be lost."
+          confirmLabel="Replace" danger
           onConfirm={() => { setConfirm(false); fileRef.current?.click(); }}
           onCancel={() => setConfirm(false)}
         />
       )}
 
+      {/* Upload button */}
       <button onClick={triggerUpload} style={btnPrimary(result ? T.teal : T.accent)}>
-        {status === "parsing" ? "Parsing…" : result ? `✓ Replace Answer Key (${result.fileName || ""})` : "Upload Answer Key (.docx)"}
+        {status === "parsing" ? "Parsing…"
+          : result ? `↺ Replace Key (${result.fileName || "uploaded"})`
+          : "Upload Answer Key (.docx)"}
       </button>
 
       {errorMsg && <FieldError msg={errorMsg} />}
 
-      {result && status === "done" && (
-        <div style={{
-          marginTop: 12, background: T.surface, borderRadius: 8,
-          padding: "12px 14px", border: `1px solid ${T.border}`,
-        }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: T.green, marginBottom: 8 }}>
-            ✓ Answer key parsed successfully
-          </div>
-          <div style={{ fontSize: 11, color: T.text2, lineHeight: 1.8 }}>
-            <div>Format: <strong style={{ color: T.text }}>{result.type === "multi" ? "Multi-booklet (A/B/C/D)" : `Single booklet (${result.singleCode})`}</strong></div>
-            <div>Booklets: {bookletLetters.map(bl => {
-              const count = result.type === "multi"
-                ? Object.keys(result.booklets[bl] || {}).length
-                : Object.keys(result.singleAnswers || {}).length;
-              const delCount = (result.deletedQuestions[bl] || []).length;
-              return (
-                <span key={bl} style={{ marginRight: 12 }}>
-                  <strong style={{ color: T.accent2 }}>{bl}</strong>: {count} questions
-                  {delCount > 0 && <span style={{ color: T.orange }}> ({delCount} deleted)</span>}
-                </span>
-              );
-            })}</div>
+      {/* ── Parsed result + editor ── */}
+      {result && (
+        <div style={{ marginTop: 14 }}>
+          {/* Summary strip */}
+          <div style={{
+            background: T.surface, borderRadius: 8,
+            padding: "10px 14px", border: `1px solid ${T.border}`,
+            marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.green, marginBottom: 6 }}>
+              ✓ {result.fileName || "Answer key"} parsed
+            </div>
+            <div style={{ fontSize: 11, color: T.text2, display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <span>Format: <strong style={{ color: T.text }}>
+                {result.type === "multi" ? "Multi-booklet (A / B / C / D)" : `Single booklet (${result.singleCode})`}
+              </strong></span>
+              {bookletLetters.map(bl => {
+                const ans = getAnswers(bl);
+                const total = Object.values(ans).filter(Boolean).length;
+                const del   = (result.deletedQuestions?.[bl] || []).length;
+                const miss  = 100 - total;
+                return (
+                  <span key={bl}>
+                    <strong style={{ color: T.accent2 }}>{bl}</strong>: {total} parsed
+                    {del  > 0 && <span style={{ color: T.red    }}> · {del} deleted (X)</span>}
+                    {miss > 0 && <span style={{ color: T.yellow }}> · {miss} missing</span>}
+                  </span>
+                );
+              })}
+            </div>
             {result.parseWarnings?.length > 0 && (
-              <div style={{ color: T.yellow, marginTop: 6 }}>
+              <div style={{ color: T.yellow, fontSize: 11, marginTop: 6 }}>
                 ⚠ {result.parseWarnings.join(" | ")}
               </div>
             )}
           </div>
+
+          {/* Booklet tab selector (multi-booklet only) */}
+          {result.type === "multi" && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              <span style={{ fontSize: 11, color: T.text3, alignSelf: "center", marginRight: 4 }}>
+                View / edit booklet:
+              </span>
+              {["A","B","C","D"].map(bl => (
+                <button key={bl} onClick={() => setViewBooklet(bl)}
+                  style={{
+                    ...btnGhost, padding: "5px 14px", fontSize: 13, fontWeight: 800,
+                    background:  viewBooklet === bl ? T.accent + "33" : "transparent",
+                    color:       viewBooklet === bl ? T.accent2         : T.text2,
+                    borderColor: viewBooklet === bl ? T.accent           : T.border2,
+                    borderRadius: 8,
+                  }}>
+                  {bl}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Instructions */}
+          <div style={{ fontSize: 11, color: T.text3, marginBottom: 10, lineHeight: 1.6 }}>
+            Tap any cell to correct a wrong answer. Valid values: A B C D X (X = deleted question).
+            <span style={{ color: T.yellow }}> Yellow</span> = missing (not parsed),
+            <span style={{ color: T.red    }}> Red</span> = deleted (X).
+            Changes save automatically.
+          </div>
+
+          {/* Answer grid — 10 rows × 10 cols = 100 questions */}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: "4px 8px", color: T.text3, fontSize: 10, textAlign: "left", borderBottom: `1px solid ${T.border}` }}>Q</th>
+                  <th style={{ padding: "4px 8px", color: T.accent2, fontSize: 11, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>Ans</th>
+                  <th style={{ width: 16 }} />
+                  <th style={{ padding: "4px 8px", color: T.text3, fontSize: 10, textAlign: "left", borderBottom: `1px solid ${T.border}` }}>Q</th>
+                  <th style={{ padding: "4px 8px", color: T.accent2, fontSize: 11, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>Ans</th>
+                  <th style={{ width: 16 }} />
+                  <th style={{ padding: "4px 8px", color: T.text3, fontSize: 10, textAlign: "left", borderBottom: `1px solid ${T.border}` }}>Q</th>
+                  <th style={{ padding: "4px 8px", color: T.accent2, fontSize: 11, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>Ans</th>
+                  <th style={{ width: 16 }} />
+                  <th style={{ padding: "4px 8px", color: T.text3, fontSize: 10, textAlign: "left", borderBottom: `1px solid ${T.border}` }}>Q</th>
+                  <th style={{ padding: "4px 8px", color: T.accent2, fontSize: 11, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>Ans</th>
+                  <th style={{ width: 16 }} />
+                  <th style={{ padding: "4px 8px", color: T.text3, fontSize: 10, textAlign: "left", borderBottom: `1px solid ${T.border}` }}>Q</th>
+                  <th style={{ padding: "4px 8px", color: T.accent2, fontSize: 11, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>Ans</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* 20 rows, 5 question pairs per row = 100 questions */}
+                {Array.from({ length: 20 }, (_, row) => {
+                  // Each row covers 5 questions in two halves: 1-50 (odd rows) and 51-100 (even rows)
+                  // Layout: Q1 | Q51 | gap | Q2 | Q52 | gap | ... Q5 | Q55
+                  const qNums = [
+                    row + 1,       // col 1: Q1..Q20
+                    row + 21,      // col 2: Q21..Q40
+                    row + 41,      // col 3: Q41..Q60
+                    row + 61,      // col 4: Q61..Q80
+                    row + 81,      // col 5: Q81..Q100
+                  ];
+                  const answers = getAnswers(viewBooklet);
+
+                  return (
+                    <tr key={row} style={{ borderBottom: `1px solid ${T.border}` }}>
+                      {qNums.map((q, ci) => {
+                        const val = answers[String(q)] || "";
+                        const isInvalid = val && !VALID.includes(val);
+                        return (
+                          <React.Fragment key={q}>
+                            {ci > 0 && <td style={{ width: 12, background: T.bg }} />}
+                            {/* Q number */}
+                            <td style={{
+                              padding: "5px 8px", color: T.text3,
+                              fontSize: 11, fontFamily: "monospace",
+                              whiteSpace: "nowrap",
+                            }}>
+                              {q}
+                            </td>
+                            {/* Editable answer cell */}
+                            <td style={{ padding: "3px 4px" }}>
+                              <input
+                                value={val}
+                                maxLength={1}
+                                onChange={e => handleCellEdit(q, viewBooklet, e.target.value)}
+                                style={{
+                                  width: 36, height: 32, textAlign: "center",
+                                  fontFamily: "monospace", fontWeight: 800, fontSize: 14,
+                                  background: isInvalid ? T.red + "33" : cellBg(val),
+                                  color: isInvalid ? T.red : cellColor(val),
+                                  border: `1px solid ${isInvalid ? T.red : val === "X" ? T.red + "66" : !val ? T.yellow + "66" : T.border}`,
+                                  borderRadius: 6,
+                                  outline: "none",
+                                  textTransform: "uppercase",
+                                  cursor: "text",
+                                }}
+                              />
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Summary of issues */}
+          {(() => {
+            const answers = getAnswers(viewBooklet);
+            const missing = Array.from({length:100},(_,i)=>i+1).filter(q => !answers[String(q)]);
+            const deleted = Array.from({length:100},(_,i)=>i+1).filter(q => answers[String(q)] === "X");
+            if (missing.length === 0 && deleted.length === 0) return (
+              <div style={{ marginTop: 10, fontSize: 11, color: T.green }}>
+                ✓ All 100 answers present for booklet {viewBooklet}
+              </div>
+            );
+            return (
+              <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.8 }}>
+                {missing.length > 0 && (
+                  <div style={{ color: T.yellow }}>
+                    ⚠ Missing ({missing.length}): Q{missing.join(", Q")}
+                  </div>
+                )}
+                {deleted.length > 0 && (
+                  <div style={{ color: T.red }}>
+                    ⊘ Deleted/X ({deleted.length}): Q{deleted.join(", Q")}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
@@ -323,17 +513,17 @@ export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride,
   const deletedQs = getDeletedQs();
 
   const setField = (q, field, value) =>
-    setLocal(prev => ({ ...prev, [q]: { ...prev[q], [field]: value } }));
+    setLocal(prev => ({ ...prev, [String(q)]: { ...prev[String(q)], [field]: value } }));
 
   const toggleGuess = (q) => {
-    const cur = local[q];
+    const cur = local[String(q)];
     if (!cur.answer) return; // Can't mark guess without an answer
     if (!cur.isGuess) {
-      setLocal(prev => ({ ...prev, [q]: { ...prev[q], isGuess: true, guessType: "5050" } }));
+      setLocal(prev => ({ ...prev, [String(q)]: { ...prev[String(q)], isGuess: true, guessType: "5050" } }));
     } else if (cur.guessType === "5050") {
-      setLocal(prev => ({ ...prev, [q]: { ...prev[q], guessType: "wild" } }));
+      setLocal(prev => ({ ...prev, [String(q)]: { ...prev[String(q)], guessType: "wild" } }));
     } else {
-      setLocal(prev => ({ ...prev, [q]: { ...prev[q], isGuess: false, guessType: null } }));
+      setLocal(prev => ({ ...prev, [String(q)]: { ...prev[String(q)], isGuess: false, guessType: null } }));
     }
   };
 
@@ -376,7 +566,7 @@ export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride,
 
   // Filter questions for display
   const visibleQs = Array.from({ length: 100 }, (_, i) => i + 1).filter(q => {
-    const entry = local[q] || {};
+    const entry = local[String(q)] || {};
     const autoSubj = subjectForQuestion(syllabus, q, rangeOverride);
     const subjId = entry.subjectOverride || (autoSubj ? autoSubj.id : null);
     if (subjectFilter !== "all" && subjId !== subjectFilter) return false;
@@ -498,7 +688,7 @@ export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride,
       {/* Question rows */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 3 }}>
         {visibleQs.map(q => {
-          const entry   = local[q] || {};
+          const entry   = local[String(q)] || {};
           const isDel   = deletedQs.has(q);
           const autoSubj = subjectForQuestion(syllabus, q, rangeOverride);
           const subjId  = entry.subjectOverride || (autoSubj ? autoSubj.id : null);
