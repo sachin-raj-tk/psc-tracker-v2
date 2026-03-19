@@ -157,27 +157,38 @@ export function AnswerKeyUploader({ existing, onParsed, syllabus }) {
   const fileRef = useRef();
 
   // ── Docx extraction ──────────────────────────────────────────────────────
+  /**
+   * Extract text from a .docx file using JSZip.
+   * A .docx is a ZIP archive containing word/document.xml (deflate-compressed).
+   * We must decompress it properly — raw byte reading does NOT work on
+   * compressed ZIP entries, which is why all .docx files produced 0 parsed answers.
+   * JSZip is loaded from cdnjs via a <script> tag in index.html.
+   */
+  const extractDocxText = async (arrayBuffer) => {
+    // Load JSZip — it is injected via <script> in index.html
+    const JSZip = window.JSZip;
+    if (!JSZip) throw new Error("JSZip not loaded. Check index.html script tag.");
+
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const docXmlFile = zip.file("word/document.xml");
+    if (!docXmlFile) throw new Error("word/document.xml not found in docx.");
+
+    const xml = await docXmlFile.async("string");
+    const runs = [];
+    const re = new RegExp("<w:t[^>]*>([^<]+)</" + "w:t>", "g");
+    let m;
+    while ((m = re.exec(xml)) !== null) runs.push(m[1]);
+    return runs.join(" ");
+  };
+
   const handleFile = async (file) => {
     if (!file) return;
     if (!file.name.endsWith(".docx")) { setErrorMsg("Only .docx files are accepted."); return; }
-    if (file.size > 3 * 1024 * 1024) { setErrorMsg("File is over 3MB."); return; }
+    if (file.size > 5 * 1024 * 1024) { setErrorMsg("File is over 5MB."); return; }
     setStatus("parsing"); setErrorMsg("");
     try {
-      const text = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const bytes = new Uint8Array(e.target.result);
-          let xml = "";
-          for (let i = 0; i < bytes.length; i++) xml += String.fromCharCode(bytes[i]);
-          const runs = [];
-          const re = new RegExp("<w:t[^>]*>([^<]+)</" + "w:t>", "g");
-          let m;
-          while ((m = re.exec(xml)) !== null) runs.push(m[1]);
-          resolve(runs.join(" "));
-        };
-        reader.onerror = reject;
-        reader.readAsArrayBuffer(file);
-      });
+      const arrayBuffer = await file.arrayBuffer();
+      const text = await extractDocxText(arrayBuffer);
       const parsed = parseAnswerKeyText(text);
       parsed.fileName = file.name;
       const initBooklet = parsed.type === "multi" ? "A" : parsed.singleCode || "A";
@@ -185,9 +196,9 @@ export function AnswerKeyUploader({ existing, onParsed, syllabus }) {
       setResult(parsed);
       setStatus("done");
       onParsed(parsed);
-    } catch {
+    } catch (err) {
       setStatus("error");
-      setErrorMsg("Could not parse the file. Make sure it is a valid .docx answer key.");
+      setErrorMsg("Could not parse the file: " + (err.message || "unknown error"));
     }
   };
 

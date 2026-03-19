@@ -97,25 +97,25 @@ export function PaperForm({ syllabus, initial, onSave, onClose }) {
     setContent("pdfName", file.name);
   };
 
-  // Docx content handler
+  // Docx content handler — uses JSZip to decompress (same fix as answer key)
   const docxRef = useRef();
-  const handleDocx = (e) => {
+  const handleDocx = async (e) => {
     const file = e.target.files[0];
     if (!file || !file.name.endsWith(".docx")) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const bytes = new Uint8Array(ev.target.result);
-      let xml = "";
-      for (let i = 0; i < bytes.length; i++) xml += String.fromCharCode(bytes[i]);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const JSZip = window.JSZip;
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const docXml = await zip.file("word/document.xml").async("string");
       const textRuns = [];
-      const re = /<w:t[^>]*>([^<]+)<\/w:t>/g;
+      const re = new RegExp("<w:t[^>]*>([^<]+)</" + "w:t>", "g");
       let m;
-      while ((m = re.exec(xml)) !== null) textRuns.push(m[1]);
-      const extracted = textRuns.join("\n");
-      setContent("docxExtracted", extracted);
+      while ((m = re.exec(docXml)) !== null) textRuns.push(m[1]);
+      setContent("docxExtracted", textRuns.join("\n"));
       setContent("docxName", file.name);
-    };
-    reader.readAsArrayBuffer(file);
+    } catch (err) {
+      alert("Could not read docx: " + (err.message || "unknown error"));
+    }
   };
 
   return (
