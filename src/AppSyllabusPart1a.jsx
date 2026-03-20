@@ -667,7 +667,8 @@ export const OPTS = ["A", "B", "C", "D"];
  * - Calculate score button
  */
 export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride, onSave, onClose }) {
-  const [local, setLocal] = useState(() => ({ ...emptyOMR(), ...omr }));
+  const [local, setLocal]                   = useState(() => ({ ...emptyOMR(), ...omr }));
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Auto-initialise selBooklet:
   // - single-booklet key -> use that code automatically (no user input needed)
@@ -716,19 +717,32 @@ export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride,
 
   const deletedQs = getDeletedQs();
 
-  const setField = (q, field, value) =>
-    setLocal(prev => ({ ...prev, [String(q)]: { ...prev[String(q)], [field]: value } }));
+  const setField = (q, field, value) => {
+    const updated = { ...local, [String(q)]: { ...local[String(q)], [field]: value } };
+    setLocal(updated);
+    // Auto-save OMR on every change — no Save OMR button click needed
+    onSave({ omr: updated, computed, bookletCode: _currentBooklet() });
+  };
+
+  // Helper: get the current booklet code for saving
+  const _currentBooklet = () => {
+    if (answerKey?.type === "single") return answerKey.singleCode;
+    return selBooklet || manualBooklet;
+  };
 
   const toggleGuess = (q) => {
     const cur = local[String(q)];
-    if (!cur.answer) return; // Can't mark guess without an answer
+    if (!cur.answer) return;
+    let updated;
     if (!cur.isGuess) {
-      setLocal(prev => ({ ...prev, [String(q)]: { ...prev[String(q)], isGuess: true, guessType: "5050" } }));
+      updated = { ...local, [String(q)]: { ...local[String(q)], isGuess: true, guessType: "5050" } };
     } else if (cur.guessType === "5050") {
-      setLocal(prev => ({ ...prev, [String(q)]: { ...prev[String(q)], guessType: "wild" } }));
+      updated = { ...local, [String(q)]: { ...local[String(q)], guessType: "wild" } };
     } else {
-      setLocal(prev => ({ ...prev, [String(q)]: { ...prev[String(q)], isGuess: false, guessType: null } }));
+      updated = { ...local, [String(q)]: { ...local[String(q)], isGuess: false, guessType: null } };
     }
+    setLocal(updated);
+    onSave({ omr: updated, computed, bookletCode: _currentBooklet() });
   };
 
   const handleCalculate = () => {
@@ -753,6 +767,8 @@ export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride,
     setShowCalcError("");
     const result = computeScoreFromOMR(local, keyAnswers, syllabus, rangeOverride);
     setComputed(result);
+    // Auto-save with computed scores so paper is immediately persisted
+    onSave({ omr: local, computed: result, bookletCode: _currentBooklet() });
   };
 
   // Save OMR + computed scores + the booklet code that was used
@@ -872,6 +888,56 @@ export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride,
         <input value={searchQ} onChange={e => setSearchQ(e.target.value)}
           placeholder="Q number..." style={{ ...inputStyle, width: 100, fontSize: 12 }} />
       </div>
+
+      {/* Clear OMR button */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <button onClick={() => setShowClearConfirm(true)}
+          style={{ ...btnGhost, fontSize: 12, color: T.red, borderColor: T.red + "44",
+            padding: "5px 14px" }}>
+          🗑 Clear All OMR Data
+        </button>
+      </div>
+
+      {/* Clear confirmation modal */}
+      {showClearConfirm && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 600,
+          background: "rgba(0,0,0,0.6)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 24,
+        }} onClick={() => setShowClearConfirm(false)}>
+          <div style={{
+            background: "#0d1117", borderRadius: 12, padding: 24,
+            maxWidth: 340, width: "100%",
+            border: "1px solid " + T.red + "44",
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 8 }}>
+              Clear OMR Data?
+            </div>
+            <div style={{ fontSize: 13, color: T.text2, marginBottom: 20, lineHeight: 1.6 }}>
+              This will erase all {answered} answers, guesses, topic tags,
+              and calculated scores for this paper. This cannot be undone.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowClearConfirm(false)}
+                style={{ ...btnGhost, fontSize: 13 }}>Cancel</button>
+              <button onClick={() => {
+                const empty = emptyOMR();
+                setLocal(empty);
+                setComputed(null);
+                setShowClearConfirm(false);
+                onSave({ omr: empty, computed: null, bookletCode: _currentBooklet() });
+              }} style={{
+                background: T.red, color: "#fff", border: "none",
+                borderRadius: 8, padding: "8px 20px",
+                fontSize: 13, fontWeight: 700, cursor: "pointer",
+              }}>
+                Clear Everything
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Legend */}
       <div style={{ display: "flex", gap: 16, marginBottom: 12, flexWrap: "wrap" }}>
@@ -1043,8 +1109,9 @@ export function SmartOMR({ omr, answerKey, bookletCode, syllabus, rangeOverride,
           ⚡ Calculate Score
         </button>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={onClose} style={btnGhost}>Cancel</button>
-          <button onClick={handleSave} style={btnPrimary(T.accent)}>Save OMR →</button>
+          <button onClick={onClose} style={btnPrimary(T.accent)}>
+            ✓ Close OMR
+          </button>
         </div>
       </div>
     </Modal>

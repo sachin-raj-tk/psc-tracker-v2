@@ -70,9 +70,17 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
   };
 
   const handleOMRSave = ({ omr, computed, bookletCode }) => {
-    setForm(f => ({ ...f, omr, computed, bookletCode }));
+    // Update form state AND immediately persist to localStorage
+    // This prevents data loss if user closes the paper modal without clicking Save Paper
+    const updated = { ...form, omr, computed, bookletCode };
+    setForm(updated);
     setDirty(true);
     setShowOMR(false);
+    // Auto-persist: save the whole paper immediately on OMR save
+    if (initial) {
+      // Editing existing paper — save immediately
+      onSave(updated);
+    }
   };
 
   const answered   = Object.values(form.omr || {}).filter(e => e?.answer).length;
@@ -643,7 +651,8 @@ export function PaperDetail({ paper, syllabus, onEdit, onClose, onShare }) {
         {/* Subject breakdown */}
         {c && (
           <Section title="Subject-wise Scores" accent={T.purple}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 600 }}>
               <thead>
                 <tr>
                   {["Subject","Max","Correct","Wrong","Deleted","Penalty","Marks","%","Guess✓","Guess✗"].map(h => (
@@ -677,6 +686,7 @@ export function PaperDetail({ paper, syllabus, onEdit, onClose, onShare }) {
                 })}
               </tbody>
             </table>
+          </div>
           </Section>
         )}
 
@@ -745,6 +755,14 @@ export function PaperDetail({ paper, syllabus, onEdit, onClose, onShare }) {
         )}
 
         {/* Guess vs Non-Guess Breakdown + Wrong Q Numbers */}
+        {c && (!c.perQuestion || Object.keys(c.perQuestion).length === 0) && (
+          <Section title="🎯 Answer Breakdown" accent={T.cyan}>
+            <div style={{ padding: "14px 0", color: T.text3, fontSize: 12, lineHeight: 1.7 }}>
+              Per-question breakdown is not available yet for this paper.
+              Open this paper → Edit → OMR tab → Calculate Score to generate the breakdown.
+            </div>
+          </Section>
+        )}
         {c && c.perQuestion && Object.keys(c.perQuestion).length > 0 && (() => {
           // Classify every answered question from perQuestion
           const pq = c.perQuestion;

@@ -627,7 +627,8 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
   const [editCutoff,  setEditCutoff]  = useState(false);
   const [cutoffInput, setCutoffInput] = useState(cutoff || "");
   const [analyticsSylId, setAnalyticsSylId] = useState(_syllabus.id);
-  const [expandModal, setExpandModal] = useState(null); // "weakSubj"|"strongSubj"|"weakTopic"|"strongTopic"
+  const [expandModal, setExpandModal] = useState(null);
+  const [selectedPaperId, setSelectedPaperId] = useState(null); // null = all papers
 
   // Allow switching syllabus inside analytics without leaving the page
   const analyticsSyl = allSyllabi.find(s => s.id === analyticsSylId) || _syllabus;
@@ -826,6 +827,37 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
         </div>
       )}
 
+      {/* ── Paper switcher ── */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: T.text3, marginBottom: 6 }}>View:</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button
+            onClick={() => setSelectedPaperId(null)}
+            style={{
+              ...btnGhost, fontSize: 12, padding: "5px 12px",
+              background: selectedPaperId === null ? T.accent + "33" : "transparent",
+              color:      selectedPaperId === null ? T.accent2 : T.text2,
+              borderColor:selectedPaperId === null ? T.accent   : T.border2,
+            }}>
+            All Papers
+          </button>
+          {[...papers].sort((a,b) => (b.date||"").localeCompare(a.date||"")).map(p => (
+            <button key={p.id}
+              onClick={() => setSelectedPaperId(p.id)}
+              style={{
+                ...btnGhost, fontSize: 11, padding: "5px 10px",
+                background: selectedPaperId === p.id ? T.purple + "33" : "transparent",
+                color:      selectedPaperId === p.id ? T.purple          : T.text2,
+                borderColor:selectedPaperId === p.id ? T.purple          : T.border2,
+                maxWidth: 150, overflow: "hidden",
+                textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+              {p.name || p.code || "Paper"}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* ── Date filter + cutoff ── */}
       <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
         <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
@@ -863,6 +895,206 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
           </div>
         </Modal>
       )}
+
+      {/* ── SINGLE PAPER VIEW ── shown when a specific paper is selected */}
+      {selectedPaperId && (() => {
+        const sp = papers.find(p => p.id === selectedPaperId);
+        if (!sp) return null;
+        const sc  = sp.computed?.totalMarks ?? 0;
+        const neg = syllabus.negMark || 1/3;
+        const pq  = sp.computed?.perQuestion || {};
+
+        // Classify questions
+        const ngWrong  = Object.keys(pq).filter(q => pq[q].result==="wrong"  && !pq[q].isGuess).map(Number).sort((a,b)=>a-b);
+        const gWrong   = Object.keys(pq).filter(q => pq[q].result==="wrong"  &&  pq[q].isGuess).map(Number).sort((a,b)=>a-b);
+        const ngCorrect= Object.keys(pq).filter(q => pq[q].result==="correct"&& !pq[q].isGuess).length;
+        const gCorrect = Object.keys(pq).filter(q => pq[q].result==="correct"&&  pq[q].isGuess).length;
+
+        // Guess totals from bySubject
+        let ffC=0,ffW=0,wgC=0,wgW=0;
+        for (const bs of Object.values(sp.computed?.bySubject||{})) {
+          ffC+=bs.ffCorrect||0; ffW+=bs.ffWrong||0;
+          wgC+=bs.wildCorrect||0; wgW+=bs.wildWrong||0;
+        }
+        const ffNet = ffC - ffW*neg;
+        const wgNet = wgC - wgW*neg;
+
+        const QBadges = ({qs, color}) => qs.length===0 ? (
+          <span style={{fontSize:11,color:T.text3}}>None</span>
+        ) : (
+          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
+            {qs.map(q=>(
+              <span key={q} style={{
+                fontSize:11,fontFamily:"monospace",fontWeight:700,
+                color,background:color+"18",
+                border:"1px solid "+color+"44",
+                borderRadius:4,padding:"2px 6px",
+              }}>{"Q"+q}</span>
+            ))}
+          </div>
+        );
+
+        return (
+          <div>
+            {/* Paper header */}
+            <div style={{...cardStyle, marginBottom:16, borderLeft:"4px solid "+T.purple}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}>
+                <div>
+                  <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:4}}>
+                    {sp.name || sp.code || "Paper"}
+                  </div>
+                  {sp.date && <div style={{fontSize:12,color:T.text3}}>{fmtDate(sp.date)}</div>}
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:30,fontWeight:900,fontFamily:"monospace",color:scoreColor(pct(sc,100)),lineHeight:1}}>
+                    {sc.toFixed(2)}
+                  </div>
+                  <div style={{fontSize:11,color:T.text3}}>/100</div>
+                </div>
+              </div>
+              {sp.computed && (
+                <div style={{display:"flex",gap:16,marginTop:10,flexWrap:"wrap",fontSize:12}}>
+                  <span style={{color:T.green}}>{"✓ "+sp.computed.totalCorrect+" correct"}</span>
+                  <span style={{color:T.red}}>{"✗ "+sp.computed.totalWrong+" wrong"}</span>
+                  <span style={{color:T.text3}}>{"⊘ "+sp.computed.totalDeleted+" deleted"}</span>
+                  <span style={{color:T.text3}}>{"— "+sp.computed.totalUnattempted+" unattempted"}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Subject breakdown */}
+            {sp.computed && (
+              <Section title="📊 Subject Scores" accent={T.purple}>
+                <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:500}}>
+                    <thead>
+                      <tr>
+                        {["Subject","Max","✓","✗","Marks","%"].map(h=>(
+                          <th key={h} style={{padding:"6px 8px",color:T.text3,fontSize:10,
+                            textAlign:h==="Subject"?"left":"center",
+                            borderBottom:"1px solid "+T.border,
+                            textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {syllabus.subjects.map(s=>{
+                        const sc2=sp.computed.bySubject[s.id]||{};
+                        const sp2=pct(sc2.marks||0,s.maxMarks);
+                        return (
+                          <tr key={s.id} style={{borderBottom:"1px solid "+T.border}}>
+                            <td style={{padding:"7px 8px",color:T.text,fontSize:12}}>{s.name}</td>
+                            <td style={{padding:"7px 8px",textAlign:"center",color:T.text3,fontFamily:"monospace"}}>{s.maxMarks}</td>
+                            <td style={{padding:"7px 8px",textAlign:"center",color:T.green,fontFamily:"monospace"}}>{sc2.correct||0}</td>
+                            <td style={{padding:"7px 8px",textAlign:"center",color:T.red,fontFamily:"monospace"}}>{sc2.wrong||0}</td>
+                            <td style={{padding:"7px 8px",textAlign:"center",color:scoreColor(sp2),fontFamily:"monospace",fontWeight:700}}>{(sc2.marks||0).toFixed(1)}</td>
+                            <td style={{padding:"7px 8px",textAlign:"center"}}><Badge label={sp2+"%"} color={scoreColor(sp2)}/></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+            )}
+
+            {/* Guess + Non-Guess breakdown with Q numbers */}
+            <Section title="🎯 Answer Breakdown" accent={T.cyan}>
+              {Object.keys(pq).length === 0 ? (
+                <div style={{fontSize:12,color:T.text3,lineHeight:1.7}}>
+                  Per-question data not available. Edit this paper → OMR tab → Calculate Score.
+                </div>
+              ) : (
+                <div>
+                  {/* Summary cards */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+                    <div style={{padding:"12px 14px",borderRadius:8,background:T.surface,border:"1px solid "+T.border}}>
+                      <div style={{fontSize:11,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>
+                        Without Guessing
+                      </div>
+                      <div style={{display:"flex",gap:16}}>
+                        <div style={{textAlign:"center"}}>
+                          <div style={{fontSize:22,fontWeight:900,color:T.green,fontFamily:"monospace"}}>{ngCorrect}</div>
+                          <div style={{fontSize:10,color:T.text3}}>Correct</div>
+                        </div>
+                        <div style={{textAlign:"center"}}>
+                          <div style={{fontSize:22,fontWeight:900,color:T.red,fontFamily:"monospace"}}>{ngWrong.length}</div>
+                          <div style={{fontSize:10,color:T.text3}}>Wrong</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{padding:"12px 14px",borderRadius:8,background:T.surface,border:"1px solid "+T.border,opacity:ffC+ffW+wgC+wgW>0?1:0.45}}>
+                      <div style={{fontSize:11,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>
+                        By Guessing
+                      </div>
+                      {ffC+ffW+wgC+wgW>0?(
+                        <div style={{display:"flex",gap:16}}>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:22,fontWeight:900,color:T.cyan,fontFamily:"monospace"}}>{gCorrect}</div>
+                            <div style={{fontSize:10,color:T.text3}}>Correct</div>
+                          </div>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:22,fontWeight:900,color:T.orange,fontFamily:"monospace"}}>{gWrong.length}</div>
+                            <div style={{fontSize:10,color:T.text3}}>Wrong</div>
+                          </div>
+                        </div>
+                      ):(
+                        <div style={{fontSize:11,color:T.text3}}>No guesses tagged in OMR</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Guesswork stats */}
+                  {(ffC+ffW+wgC+wgW)>0 && (
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+                      {[
+                        {label:"🎯 50:50",c:ffC,w:ffW,net:ffNet,col:T.cyan},
+                        {label:"🎲 Wild", c:wgC,w:wgW,net:wgNet,col:T.orange},
+                      ].map(row=>(
+                        <div key={row.label} style={{padding:"10px 12px",borderRadius:8,
+                          border:"1px solid "+row.col+"44",background:row.col+"08"}}>
+                          <div style={{fontSize:11,fontWeight:700,color:row.col,marginBottom:6}}>{row.label}</div>
+                          <div style={{fontSize:12,color:T.text2}}>
+                            {row.c+"✓ "+row.w+"✗"}
+                          </div>
+                          <div style={{fontSize:11,color:row.net>=0?T.green:T.red,fontWeight:700,marginTop:3}}>
+                            {"Net: "+(row.net>=0?"+":"")+row.net.toFixed(2)+" marks"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Wrong question numbers */}
+                  <div style={{borderTop:"1px solid "+T.border,paddingTop:12}}>
+                    <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:10}}>
+                      Wrong Question Numbers
+                    </div>
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:11,color:T.text3,marginBottom:4}}>
+                        {"Without guessing — "+ngWrong.length+" wrong"}
+                      </div>
+                      <QBadges qs={ngWrong} color={T.red} />
+                    </div>
+                    {(ffC+ffW+wgC+wgW)>0 && (
+                      <div>
+                        <div style={{fontSize:11,color:T.text3,marginBottom:4}}>
+                          {"By guessing — "+gWrong.length+" wrong"}
+                        </div>
+                        <QBadges qs={gWrong} color={T.orange} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </Section>
+          </div>
+        );
+      })()}
+
+      {/* ── Show aggregate sections only when no specific paper is selected ── */}
+      {!selectedPaperId && (
+      <div>
 
       {/* ── Score Trend ── */}
       <Section title="📈 Score Trend" accent={T.accent}>
@@ -1340,6 +1572,9 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
           </div>
         </Section>
       )}
+
+      </div>
+      )} {/* end !selectedPaperId aggregate view */}
 
       {/* ── Expand Modals for Weak/Strong cards ── */}
       {expandModal && (() => {
