@@ -509,45 +509,89 @@ function PapersList({ papers, syllabus, streak, onAdd, onEdit, onDelete, onView 
             const c   = p.computed;
             const hasContent = p.content?.text || p.content?.docxExtracted || p.content?.pdfData;
             return (
-              <div key={p.id} style={{
-                ...cardStyle,
-                display: "grid", gridTemplateColumns: "1fr auto auto",
-                gap: 12, alignItems: "center",
-              }}>
-                <div>
-                  <div style={{
-                    fontWeight: 700, color: T.text, fontSize: 14,
-                    marginBottom: 4, display: "flex", gap: 8,
-                    alignItems: "center", flexWrap: "wrap",
-                  }}>
-                    {p.name || "Unnamed Paper"}
-                    {p.code        && <span style={{ fontSize: 11, color: T.text3, fontFamily: "monospace" }}>{p.code}</span>}
-                    {p.date        && <span style={{ fontSize: 11, color: T.text3 }}>{fmtDate(p.date)}</span>}
-                    {p.bookletCode && <Badge label={`Booklet ${p.bookletCode}`} color={T.accent} />}
-                    {p.answerKey   && <Badge label="Key ✓" color={T.green} />}
-                    {hasContent    && <Badge label="📄" color={T.purple} />}
+              <div key={p.id} style={{ ...cardStyle, padding: "12px 14px" }}>
+
+                {/* ── Row 1: Name + Score ── */}
+                <div style={{ display: "flex", justifyContent: "space-between",
+                  alignItems: "flex-start", gap: 10, marginBottom: 6 }}>
+                  {/* Left: name */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, color: T.text, fontSize: 14,
+                      lineHeight: 1.3, marginBottom: 3 }}>
+                      {p.name || "Unnamed Paper"}
+                    </div>
+                    {/* Meta row: code · date */}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap",
+                      alignItems: "center" }}>
+                      {p.code && (
+                        <span style={{ fontSize: 11, color: T.text3,
+                          fontFamily: "monospace" }}>{p.code}</span>
+                      )}
+                      {p.date && (
+                        <span style={{ fontSize: 11, color: T.text3 }}>
+                          {fmtDate(p.date)}
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  {/* Right: score */}
                   {c && (
-                    <div style={{ fontSize: 11, color: T.text3 }}>
-                      ✓ {c.totalCorrect} &nbsp;✗ {c.totalWrong} &nbsp;⊘ {c.totalDeleted}
-                      &nbsp; Penalty: {c.totalPenalty.toFixed(2)}
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontFamily: "monospace", fontSize: 26,
+                        fontWeight: 900, color: scoreColor(sp), lineHeight: 1 }}>
+                        {sc.toFixed(1)}
+                      </div>
+                      <div style={{ fontSize: 10, color: T.text3 }}>/100</div>
                     </div>
                   )}
                 </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 900, color: scoreColor(sp) }}>
-                    {sc.toFixed(1)}
+
+                {/* ── Row 2: Badges ── */}
+                {(p.bookletCode || p.answerKey || hasContent) && (
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap",
+                    marginBottom: 6 }}>
+                    {p.bookletCode && (
+                      <Badge label={"Booklet " + p.bookletCode} color={T.accent} />
+                    )}
+                    {p.answerKey && <Badge label="Key ✓" color={T.green} />}
+                    {hasContent  && <Badge label="📄 Content" color={T.purple} />}
                   </div>
-                  <div style={{ fontSize: 10, color: T.text3 }}>/100</div>
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <button onClick={() => onView(p)} style={{ ...btnGhost, fontSize: 12 }}>View</button>
-                  <button onClick={() => onEdit(p)} style={{ ...btnGhost, fontSize: 12 }}>Edit</button>
+                )}
+
+                {/* ── Row 3: Stats ── */}
+                {c && (
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap",
+                    fontSize: 11, color: T.text3, marginBottom: 8 }}>
+                    <span style={{ color: T.green }}>{"✓ " + c.totalCorrect}</span>
+                    <span style={{ color: T.red }}>{"✗ " + c.totalWrong}</span>
+                    {c.totalDeleted > 0 && (
+                      <span>{"⊘ " + c.totalDeleted}</span>
+                    )}
+                    <span>{"−" + c.totalPenalty.toFixed(2) + " penalty"}</span>
+                  </div>
+                )}
+
+                {/* ── Row 4: Action buttons — single row, never wraps ── */}
+                <div style={{ display: "flex", gap: 6,
+                  borderTop: "1px solid " + T.border, paddingTop: 8 }}>
+                  <button onClick={() => onView(p)}
+                    style={{ ...btnGhost, fontSize: 12, flex: 1 }}>
+                    View
+                  </button>
+                  <button onClick={() => onEdit(p)}
+                    style={{ ...btnGhost, fontSize: 12, flex: 1 }}>
+                    Edit
+                  </button>
                   <button
                     onClick={() => shareOnWhatsApp(p, syllabus, streak?.currentStreak)}
-                    style={{ ...btnGhost, fontSize: 12 }}>📤</button>
+                    style={{ ...btnGhost, fontSize: 12, padding: "6px 10px" }}>
+                    📤
+                  </button>
                   <button onClick={() => setToDelete(p)}
-                    style={{ ...btnGhost, fontSize: 12, color: T.red, borderColor: T.red + "44" }}>Del</button>
+                    style={{ ...btnGhost, fontSize: 12, padding: "6px 10px",
+                      color: T.red, borderColor: T.red + "44" }}>
+                    Del
+                  </button>
                 </div>
               </div>
             );
