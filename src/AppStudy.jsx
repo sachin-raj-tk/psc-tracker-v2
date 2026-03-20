@@ -469,6 +469,8 @@ export function StudyHeatmap({ logs }) {
         </div>
       )}
     </div>
+  </div>
+  </div>
   );
 }
 
@@ -1216,6 +1218,7 @@ export function RevisionCounter({ syllabus, papers, onUpdateRevision }) {
         })}
       </div>
     </div>
+  </div>
   );
 }
 
