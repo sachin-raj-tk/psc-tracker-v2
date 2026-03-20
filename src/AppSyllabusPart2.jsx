@@ -744,6 +744,132 @@ export function PaperDetail({ paper, syllabus, onEdit, onClose, onShare }) {
           </Section>
         )}
 
+        {/* Guess vs Non-Guess Breakdown + Wrong Q Numbers */}
+        {c && c.perQuestion && Object.keys(c.perQuestion).length > 0 && (() => {
+          // Classify every answered question from perQuestion
+          const pq = c.perQuestion;
+          const guessCorrectQs   = Object.keys(pq).filter(q => pq[q].result === "correct" && pq[q].isGuess).map(Number).sort((a,b)=>a-b);
+          const guessWrongQs     = Object.keys(pq).filter(q => pq[q].result === "wrong"   && pq[q].isGuess).map(Number).sort((a,b)=>a-b);
+          const nonGuessCorrectQs= Object.keys(pq).filter(q => pq[q].result === "correct" && !pq[q].isGuess).map(Number).sort((a,b)=>a-b);
+          const nonGuessWrongQs  = Object.keys(pq).filter(q => pq[q].result === "wrong"   && !pq[q].isGuess).map(Number).sort((a,b)=>a-b);
+
+          const hasAnyGuess = guessCorrectQs.length + guessWrongQs.length > 0;
+
+          const QList = ({ qs, color }) => (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+              {qs.map(q => (
+                <span key={q} style={{
+                  fontSize: 11, fontFamily: "monospace", fontWeight: 700,
+                  color, background: color + "18",
+                  border: "1px solid " + color + "44",
+                  borderRadius: 4, padding: "2px 6px",
+                }}>
+                  {"Q" + q}
+                </span>
+              ))}
+            </div>
+          );
+
+          return (
+            <Section title="🎯 Answer Breakdown" accent={T.cyan}>
+              {/* Summary row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+
+                {/* Non-guess */}
+                <div style={{ padding: "12px 14px", borderRadius: 8,
+                  background: T.surface, border: "1px solid " + T.border }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text3,
+                    textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                    Without Guessing
+                  </div>
+                  <div style={{ display: "flex", gap: 16 }}>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 22, fontWeight: 900,
+                        color: T.green, fontFamily: "monospace" }}>
+                        {nonGuessCorrectQs.length}
+                      </div>
+                      <div style={{ fontSize: 10, color: T.text3 }}>Correct</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 22, fontWeight: 900,
+                        color: T.red, fontFamily: "monospace" }}>
+                        {nonGuessWrongQs.length}
+                      </div>
+                      <div style={{ fontSize: 10, color: T.text3 }}>Wrong</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Guess */}
+                <div style={{ padding: "12px 14px", borderRadius: 8,
+                  background: T.surface, border: "1px solid " + T.border,
+                  opacity: hasAnyGuess ? 1 : 0.45 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text3,
+                    textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                    By Guessing
+                  </div>
+                  {hasAnyGuess ? (
+                    <div style={{ display: "flex", gap: 16 }}>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 22, fontWeight: 900,
+                          color: T.cyan, fontFamily: "monospace" }}>
+                          {guessCorrectQs.length}
+                        </div>
+                        <div style={{ fontSize: 10, color: T.text3 }}>Correct</div>
+                      </div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 22, fontWeight: 900,
+                          color: T.orange, fontFamily: "monospace" }}>
+                          {guessWrongQs.length}
+                        </div>
+                        <div style={{ fontSize: 10, color: T.text3 }}>Wrong</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: T.text3 }}>No guesses tagged in OMR</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Wrong question numbers */}
+              <div style={{ borderTop: "1px solid " + T.border, paddingTop: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text,
+                  marginBottom: 10 }}>Wrong Question Numbers</div>
+
+                {/* Non-guess wrong */}
+                {nonGuessWrongQs.length > 0 ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>
+                      {"Without guessing — " + nonGuessWrongQs.length + " wrong"}
+                    </div>
+                    <QList qs={nonGuessWrongQs} color={T.red} />
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>
+                    No non-guess wrong answers 🎉
+                  </div>
+                )}
+
+                {/* Guess wrong */}
+                {hasAnyGuess && (
+                  guessWrongQs.length > 0 ? (
+                    <div>
+                      <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>
+                        {"By guessing — " + guessWrongQs.length + " wrong"}
+                      </div>
+                      <QList qs={guessWrongQs} color={T.orange} />
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: T.green }}>
+                      All guessed answers were correct! 🎯
+                    </div>
+                  )
+                )}
+              </div>
+            </Section>
+          );
+        })()}
+
         {/* Notes */}
         {paper.notes && (
           <div style={{ padding: "10px 14px", background: T.surface, borderRadius: 8, fontSize: 12, color: T.text2, lineHeight: 1.7 }}>

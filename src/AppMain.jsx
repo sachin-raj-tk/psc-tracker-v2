@@ -1062,6 +1062,52 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
             </div>
           </div>
         )}
+
+        {/* Non-guess aggregate */}
+        {(() => {
+          // Compute non-guess totals from all filtered papers
+          let ngCorrect = 0, ngWrong = 0;
+          for (const p of filtered) {
+            const pq = p.computed?.perQuestion || {};
+            for (const v of Object.values(pq)) {
+              if (v.result === "correct" && !v.isGuess) ngCorrect++;
+              if (v.result === "wrong"   && !v.isGuess) ngWrong++;
+            }
+          }
+          if (ngCorrect + ngWrong === 0) return null;
+          const ngTotal = ngCorrect + ngWrong;
+          const ngAcc   = Math.round(ngCorrect / ngTotal * 100);
+          const ngNet   = ngCorrect - ngWrong * neg;
+          return (
+            <div style={{ marginTop: 12, borderTop: "1px solid " + T.border, paddingTop: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text3,
+                textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                Non-Guesswork Answers (across all papers)
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+                {[
+                  { label: "Correct",   val: ngCorrect, color: T.green  },
+                  { label: "Wrong",     val: ngWrong,   color: T.red    },
+                  { label: "Accuracy",  val: ngAcc + "%", color: scoreColor(ngAcc) },
+                  { label: "Net Marks", val: (ngNet >= 0 ? "+" : "") + ngNet.toFixed(1), color: ngNet >= 0 ? T.green : T.red },
+                ].map(item => (
+                  <div key={item.label} style={{ textAlign: "center", padding: "10px 8px",
+                    background: T.surface, borderRadius: 8,
+                    border: "1px solid " + T.border }}>
+                    <div style={{ fontSize: 18, fontWeight: 900,
+                      color: item.color, fontFamily: "monospace" }}>
+                      {item.val}
+                    </div>
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 3 }}>{item.label}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 10, color: T.text3, marginTop: 8 }}>
+                Question numbers not shown for combined view — see individual paper details.
+              </div>
+            </div>
+          );
+        })()}
       </Section>
 
       {/* ── Score Consistency + Improvement Rate ── */}

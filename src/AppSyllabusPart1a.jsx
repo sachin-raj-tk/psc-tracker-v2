@@ -87,8 +87,12 @@ export function parseAnswerKeyText(rawText) {
   const lines    = rawText.split("\n").map(l => l.trim()).filter(Boolean);
   const warnings = [];
 
-  // Detect format by looking for column headers A B C D
-  const isMulti = /\bA\b.*\bB\b.*\bC\b.*\bD\b/i.test(rawText.slice(0, 800));
+  // Detect format: multi-booklet has A B C D as consecutive column headers
+  // (within 8 chars of each other). The old loose regex incorrectly matched
+  // scattered answer values A...B...C...D across 200+ chars in single-booklet files.
+  // Single-booklet files have ALPHACODE X with one Answer column.
+  // Multi-booklet files have A B C D as tight column headers on the same row.
+  const isMulti = /\bA\b\s+\bB\b\s+\bC\b\s+\bD\b/.test(rawText.slice(0, 800));
 
   if (isMulti) {
     // ── Multi-booklet format ──────────────────────────────────────────────
