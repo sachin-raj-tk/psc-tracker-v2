@@ -857,8 +857,7 @@ export function StudyTimer() {
               letterSpacing: "0.04em", textAlign: "center",
               lineHeight: 1.2,
             }}>
-              {done ? "🎉
-Done!" : fmt(remaining)}
+              {done ? "🎉 Done!" : fmt(remaining)}
             </div>
           </div>
 
@@ -898,8 +897,7 @@ Done!" : fmt(remaining)}
 
       {/* Info */}
       <div style={{ fontSize: 11, color: T.text3, textAlign: "center", lineHeight: 1.7 }}>
-        A chime plays when your session ends.{"
-"}Keep this tab open for the timer to work.
+        A chime plays when your session ends. Keep this tab open for the timer to work.
       </div>
     </div>
   );
