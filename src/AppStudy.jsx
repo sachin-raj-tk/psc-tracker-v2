@@ -10,7 +10,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   T, inputStyle, btnPrimary, btnGhost, cardStyle,
   uid, todayStr, fmtDate, matchSearch,
@@ -646,6 +646,260 @@ export function RevisionCounter({ syllabus, papers, onUpdateRevision }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STUDY TIMER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Plays a beautiful 3-tone ascending chime using Web Audio API.
+ * No audio file needed — generated in pure JS.
+ * C5 → E5 → G5 with smooth fade-out on each note.
+ */
+function playChime() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const notes = [
+      { freq: 523.25, start: 0.0,  dur: 0.5  },  // C5
+      { freq: 659.25, start: 0.25, dur: 0.5  },  // E5
+      { freq: 783.99, start: 0.5,  dur: 0.85 },  // G5
+    ];
+    notes.forEach(({ freq, start, dur }) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type      = "sine";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+      gain.gain.setValueAtTime(0, ctx.currentTime + start);
+      gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + start + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + dur + 0.05);
+    });
+    // Close context after chime finishes
+    setTimeout(() => { try { ctx.close(); } catch {} }, 2000);
+  } catch {}
+}
+
+/**
+ * StudyTimer — countdown timer for study sessions.
+ * User sets hours + minutes. Counts down to zero with HH:MM:SS display.
+ * Plays chime when complete. Start / Pause / Resume / Reset controls.
+ */
+export function StudyTimer() {
+  const [hours,     setHours]     = useState("0");
+  const [minutes,   setMinutes]   = useState("25");
+  const [totalSecs, setTotalSecs] = useState(null);  // null = not started
+  const [remaining, setRemaining] = useState(0);
+  const [running,   setRunning]   = useState(false);
+  const [done,      setDone]      = useState(false);
+  const intervalRef = useRef(null);
+  const endTimeRef  = useRef(null); // absolute end timestamp — immune to background/sleep drift
+
+  // Clear interval on unmount
+  useEffect(() => {
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, []);
+
+  // Tick — recalculate from absolute end time to avoid drift
+  const startTick = (endTimestamp) => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => {
+      const left = Math.max(0, Math.round((endTimestamp - Date.now()) / 1000));
+      setRemaining(left);
+      if (left <= 0) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+        setRunning(false);
+        setDone(true);
+        playChime();
+      }
+    }, 500); // tick twice/sec for accuracy
+  };
+
+  const handleStart = () => {
+    const h = Math.max(0, Math.min(23, parseInt(hours)   || 0));
+    const m = Math.max(0, Math.min(59, parseInt(minutes) || 0));
+    const secs = h * 3600 + m * 60;
+    if (secs <= 0) return;
+    const endTs = Date.now() + secs * 1000;
+    endTimeRef.current = endTs;
+    setTotalSecs(secs);
+    setRemaining(secs);
+    setRunning(true);
+    setDone(false);
+    startTick(endTs);
+  };
+
+  const handlePause = () => {
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    setRunning(false);
+    // Save remaining time so resume can set a new endTime
+    endTimeRef.current = Date.now() + remaining * 1000;
+  };
+
+  const handleResume = () => {
+    const endTs = Date.now() + remaining * 1000;
+    endTimeRef.current = endTs;
+    setRunning(true);
+    setDone(false);
+    startTick(endTs);
+  };
+
+  const handleReset = () => {
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    setRunning(false);
+    setDone(false);
+    setTotalSecs(null);
+    setRemaining(0);
+    endTimeRef.current = null;
+  };
+
+  // Format seconds as HH:MM:SS
+  const fmt = (secs) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return (
+      String(h).padStart(2,"0") + ":" +
+      String(m).padStart(2,"0") + ":" +
+      String(s).padStart(2,"0")
+    );
+  };
+
+  // Progress 0→1
+  const progress = totalSecs > 0 ? (totalSecs - remaining) / totalSecs : 0;
+
+  // Colour shifts from green → yellow → orange → red as time runs out
+  const timerColor =
+    !totalSecs       ? T.accent :
+    progress < 0.5   ? T.green  :
+    progress < 0.75  ? T.yellow :
+    progress < 0.9   ? T.orange : T.red;
+
+  return (
+    <div style={{ maxWidth: 360, margin: "0 auto" }}>
+
+      {/* Setup panel — shown before starting */}
+      {totalSecs === null && (
+        <div style={{ ...cardStyle, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 14 }}>
+            Set Study Duration
+          </div>
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 16 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1 }}>
+              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Hours
+              </span>
+              <input type="number" min="0" max="23" value={hours}
+                onChange={e => setHours(e.target.value)}
+                placeholder="0"
+                style={{ ...inputStyle, textAlign: "center", fontSize: 22, fontWeight: 700,
+                  fontFamily: "monospace", padding: "10px 8px" }} />
+            </label>
+            <span style={{ fontSize: 28, color: T.text3, paddingBottom: 10 }}>:</span>
+            <label style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1 }}>
+              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Minutes
+              </span>
+              <input type="number" min="0" max="59" value={minutes}
+                onChange={e => setMinutes(e.target.value)}
+                placeholder="25"
+                style={{ ...inputStyle, textAlign: "center", fontSize: 22, fontWeight: 700,
+                  fontFamily: "monospace", padding: "10px 8px" }} />
+            </label>
+          </div>
+          {/* Quick presets */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            {[["0","25"],["0","45"],["1","0"],["1","30"]].map(([h,m]) => (
+              <button key={h+":"+m}
+                onClick={() => { setHours(h); setMinutes(m); }}
+                style={{ ...btnGhost, flex: 1, fontSize: 11, padding: "5px 4px" }}>
+                {h === "0" ? m + "m" : h + "h " + (m === "0" ? "" : m + "m")}
+              </button>
+            ))}
+          </div>
+          <button onClick={handleStart}
+            style={{ ...btnPrimary(T.accent), width: "100%", fontSize: 15, padding: "12px 0" }}>
+            ▶ Start Timer
+          </button>
+        </div>
+      )}
+
+      {/* Running / paused / done display */}
+      {totalSecs !== null && (
+        <div style={{ ...cardStyle, textAlign: "center", marginBottom: 16 }}>
+
+          {/* Circular progress ring */}
+          <div style={{ position: "relative", display: "inline-block", marginBottom: 16 }}>
+            <svg width="200" height="200" style={{ transform: "rotate(-90deg)" }}>
+              {/* Background track */}
+              <circle cx="100" cy="100" r="88"
+                fill="none" stroke={T.border} strokeWidth="10" />
+              {/* Progress arc */}
+              <circle cx="100" cy="100" r="88"
+                fill="none" stroke={timerColor} strokeWidth="10"
+                strokeLinecap="round"
+                strokeDasharray={String(2 * Math.PI * 88)}
+                strokeDashoffset={String(2 * Math.PI * 88 * progress)} />
+            </svg>
+            {/* Time display centred in ring */}
+            <div style={{
+              position: "absolute", top: "50%", left: "50%",
+              transform: "translate(-50%,-50%)",
+              fontFamily: "monospace", fontWeight: 900,
+              fontSize: done ? 22 : 32, color: done ? T.green : timerColor,
+              letterSpacing: "0.04em", textAlign: "center",
+              lineHeight: 1.2,
+            }}>
+              {done ? "🎉
+Done!" : fmt(remaining)}
+            </div>
+          </div>
+
+          {/* Status label */}
+          {done ? (
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.green, marginBottom: 16 }}>
+              Session complete! Well done 🎯
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>
+              {running ? "Focus. You are doing great." : "Paused — tap Resume to continue."}
+            </div>
+          )}
+
+          {/* Controls */}
+          <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+            {!done && running && (
+              <button onClick={handlePause}
+                style={{ ...btnGhost, fontSize: 14, padding: "10px 24px" }}>
+                ⏸ Pause
+              </button>
+            )}
+            {!done && !running && (
+              <button onClick={handleResume}
+                style={{ ...btnPrimary(T.accent), fontSize: 14, padding: "10px 24px" }}>
+                ▶ Resume
+              </button>
+            )}
+            <button onClick={handleReset}
+              style={{ ...btnGhost, fontSize: 14, padding: "10px 24px",
+                color: T.red, borderColor: T.red + "44" }}>
+              ✕ Reset
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Info */}
+      <div style={{ fontSize: 11, color: T.text3, textAlign: "center", lineHeight: 1.7 }}>
+        A chime plays when your session ends.{"
+"}Keep this tab open for the timer to work.
       </div>
     </div>
   );

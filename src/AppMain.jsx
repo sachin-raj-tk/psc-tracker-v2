@@ -13,7 +13,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   T, inputStyle, btnPrimary, btnGhost, cardStyle,
   pct, scoreColor, fmtDate, todayStr,
@@ -36,12 +36,241 @@ import {
   StudyLogPanel,
   RevisionCounter,
   StreakPanel,
+  StudyTimer,
 } from "./AppStudy";
 
 import {
   SyncPanel,
   shareOnWhatsApp,
 } from "./AppSync";
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXAM COUNTDOWN TIMERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const EXAM_TIMERS_KEY = "psc-exam-timers";
+
+/** Load exam timers from localStorage */
+function loadExamTimers() {
+  try { return JSON.parse(localStorage.getItem(EXAM_TIMERS_KEY) || "[]"); }
+  catch { return []; }
+}
+
+/** Save exam timers to localStorage */
+function saveExamTimers(timers) {
+  localStorage.setItem(EXAM_TIMERS_KEY, JSON.stringify(timers));
+}
+
+/**
+ * Calculate countdown from now to a target datetime string (YYYY-MM-DDTHH:MM).
+ * Returns { status, days, hours, minutes } or { status: "past"|"today"|"error" }
+ */
+function calcCountdown(datetimeStr) {
+  try {
+    const target = new Date(datetimeStr).getTime();
+    const now    = Date.now();
+    const diff   = target - now;
+    if (isNaN(target)) return { status: "error" };
+    if (diff <= 0) {
+      const pastDays = Math.floor(Math.abs(diff) / 86400000);
+      return pastDays === 0 ? { status: "today" } : { status: "past", days: pastDays };
+    }
+    const totalSecs = Math.floor(diff / 1000);
+    return {
+      status:  "future",
+      days:    Math.floor(totalSecs / 86400),
+      hours:   Math.floor((totalSecs % 86400) / 3600),
+      minutes: Math.floor((totalSecs % 3600) / 60),
+    };
+  } catch { return { status: "error" }; }
+}
+
+/**
+ * ExamTimers — shows all exam countdown cards + add/edit modal.
+ * Prop: compact — if true, renders a smaller strip (for dashboard).
+ */
+function ExamTimers() {
+  const [timers,    setTimers]    = useState(() => loadExamTimers());
+  const [tick,      setTick]      = useState(0);
+  const [showModal, setShowModal] = useState(false);
+  const [editing,   setEditing]   = useState(null); // null or timer object
+  const [formName,  setFormName]  = useState("");
+  const [formDT,    setFormDT]    = useState("");
+  const [formErr,   setFormErr]   = useState("");
+
+  // Tick every minute to refresh countdowns
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const openAdd = () => {
+    setEditing(null);
+    setFormName("");
+    setFormDT("");
+    setFormErr("");
+    setShowModal(true);
+  };
+
+  const openEdit = (timer) => {
+    setEditing(timer);
+    setFormName(timer.name);
+    setFormDT(timer.datetime);
+    setFormErr("");
+    setShowModal(true);
+  };
+
+  const handleSave = () => {
+    if (!formName.trim()) { setFormErr("Exam name is required."); return; }
+    if (!formDT)          { setFormErr("Exam date and time are required."); return; }
+    setFormErr("");
+    let updated;
+    if (editing) {
+      updated = timers.map(t => t.id === editing.id
+        ? { ...t, name: formName.trim(), datetime: formDT }
+        : t);
+    } else {
+      updated = [...timers, { id: Math.random().toString(36).slice(2,10), name: formName.trim(), datetime: formDT }];
+    }
+    saveExamTimers(updated);
+    setTimers(updated);
+    setShowModal(false);
+  };
+
+  const handleDelete = (id) => {
+    const updated = timers.filter(t => t.id !== id);
+    saveExamTimers(updated);
+    setTimers(updated);
+  };
+
+  // Status colours and labels
+  const getDisplay = (cd) => {
+    if (cd.status === "today")  return { color: T.yellow, label: "Exam is Today! 🎯", sub: "" };
+    if (cd.status === "past")   return { color: T.text3,  label: "Exam completed",    sub: cd.days + " days ago" };
+    if (cd.status === "error")  return { color: T.red,    label: "Invalid date",      sub: "" };
+    return {
+      color: cd.days < 7 ? T.orange : cd.days < 30 ? T.yellow : T.green,
+      label: "",
+      sub: "",
+    };
+  };
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      {/* Header row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>🗓 Exam Countdowns</span>
+        <button onClick={openAdd} style={{ ...btnGhost, fontSize: 11, padding: "4px 12px" }}>
+          + Add Exam
+        </button>
+      </div>
+
+      {/* Empty state */}
+      {timers.length === 0 && (
+        <div style={{ ...cardStyle, textAlign: "center", padding: "20px 16px", color: T.text3, fontSize: 12 }}>
+          No exam dates set yet. Tap "+ Add Exam" to add your first countdown.
+        </div>
+      )}
+
+      {/* Timer cards */}
+      {timers.map(timer => {
+        const cd   = calcCountdown(timer.datetime);
+        const disp = getDisplay(cd);
+        const isPast = cd.status === "past" || cd.status === "today";
+        return (
+          <div key={timer.id} style={{
+            ...cardStyle,
+            marginBottom: 8,
+            borderLeft: "4px solid " + disp.color,
+            opacity: cd.status === "past" ? 0.65 : 1,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }}>
+                {/* Exam name */}
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6 }}>
+                  {timer.name}
+                </div>
+
+                {/* Countdown display */}
+                {cd.status === "future" ? (
+                  <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+                    {[
+                      { v: cd.days,    u: "days"  },
+                      { v: cd.hours,   u: "hrs"   },
+                      { v: cd.minutes, u: "min"   },
+                    ].map(seg => (
+                      <div key={seg.u} style={{ textAlign: "center" }}>
+                        <span style={{ fontSize: 28, fontWeight: 900, color: disp.color, fontFamily: "monospace", lineHeight: 1 }}>
+                          {seg.v}
+                        </span>
+                        <span style={{ fontSize: 10, color: T.text3, marginLeft: 3 }}>{seg.u}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 14, fontWeight: 700, color: disp.color }}>
+                    {disp.label}
+                    {disp.sub ? <span style={{ fontSize: 11, color: T.text3, marginLeft: 8 }}>{disp.sub}</span> : null}
+                  </div>
+                )}
+
+                {/* Exam datetime */}
+                <div style={{ fontSize: 10, color: T.text3, marginTop: 5 }}>
+                  {new Date(timer.datetime).toLocaleString("en-IN", {
+                    day: "numeric", month: "short", year: "numeric",
+                    hour: "2-digit", minute: "2-digit",
+                  })}
+                </div>
+              </div>
+
+              {/* Edit / Delete */}
+              <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: 8 }}>
+                <button onClick={() => openEdit(timer)}
+                  style={{ ...btnGhost, padding: "4px 8px", fontSize: 11 }}>✎</button>
+                <button onClick={() => handleDelete(timer.id)}
+                  style={{ ...btnGhost, padding: "4px 8px", fontSize: 11, color: T.red, borderColor: T.red + "44" }}>✕</button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Add/Edit Modal */}
+      {showModal && (
+        <Modal title={editing ? "Edit Exam Timer" : "Add Exam Timer"} onClose={() => setShowModal(false)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Exam Name *
+              </span>
+              <input value={formName} onChange={e => setFormName(e.target.value)}
+                placeholder="e.g. DLP 2025 Prelims"
+                style={inputStyle} maxLength={80} />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <span style={{ fontSize: 10, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Exam Date and Time *
+              </span>
+              <input type="datetime-local" value={formDT}
+                onChange={e => setFormDT(e.target.value)}
+                style={inputStyle} />
+              <span style={{ fontSize: 10, color: T.text3 }}>
+                Set the date and start time of the exam
+              </span>
+            </label>
+            {formErr && <div style={{ fontSize: 12, color: T.red }}>{"⚠ " + formErr}</div>}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowModal(false)} style={btnGhost}>Cancel</button>
+              <button onClick={handleSave} style={btnPrimary(T.accent)}>
+                {editing ? "Update" : "Add Timer"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DASHBOARD
@@ -63,6 +292,9 @@ function Dashboard({ papers, syllabus, streak, onAddPaper, onNavigate }) {
         </div>
         <button onClick={onAddPaper} style={btnPrimary(T.accent)}>+ Add First Paper</button>
       </div>
+      {/* Exam Countdowns */}
+      <ExamTimers />
+
       {/* Quick actions for empty state */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         {[
@@ -170,6 +402,9 @@ function Dashboard({ papers, syllabus, streak, onAddPaper, onNavigate }) {
           </div>
         </Section>
       )}
+
+      {/* Exam Countdowns */}
+      <ExamTimers />
 
       {/* Quick actions */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 4 }}>
@@ -1075,10 +1310,11 @@ function StudyTrackerPage({ syllabus, papers, logs, streak, onSaveLog, onDeleteL
         )}
       </div>
 
-      <div style={{ borderBottom: "1px solid " + T.border, marginBottom: 20, display: "flex" }}>
+      <div style={{ borderBottom: "1px solid " + T.border, marginBottom: 20, display: "flex", overflowX: "auto" }}>
         <button onClick={() => setTab("streak")}    style={tabStyle("streak")}>🔥 Streak</button>
         <button onClick={() => setTab("log")}       style={tabStyle("log")}>📅 Study Log</button>
         <button onClick={() => setTab("revisions")} style={tabStyle("revisions")}>📖 Revisions</button>
+        <button onClick={() => setTab("timer")}     style={tabStyle("timer")}>⏱ Timer</button>
       </div>
 
       {tab === "streak" && (
@@ -1095,6 +1331,9 @@ function StudyTrackerPage({ syllabus, papers, logs, streak, onSaveLog, onDeleteL
           syllabus={syllabus} papers={papers}
           onUpdateRevision={onUpdateRevision}
         />
+      )}
+      {tab === "timer" && (
+        <StudyTimer />
       )}
     </div>
   );
