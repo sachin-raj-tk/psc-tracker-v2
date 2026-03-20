@@ -695,24 +695,41 @@ export function StudyLogPanel({ syllabus, logs, onSave, onDelete }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {filtered.map(log => (
-            <div key={log.id} style={{
-              ...cardStyle, display: "flex", gap: 12,
-              alignItems: "flex-start", padding: "12px 16px",
-            }}>
-              <div style={{ minWidth: 90 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.accent2 }}>{fmtDate(log.date)}</div>
-                <div style={{ fontSize: 10, color: T.text3 }}>{log.topicsStudied.length} topic{log.topicsStudied.length !== 1 ? "s" : ""}</div>
+            <div key={log.id} style={{ ...cardStyle, padding: "12px 16px" }}>
+              {/* Header row: date + topic count + delete */}
+              <div style={{ display: "flex", justifyContent: "space-between",
+                alignItems: "center", marginBottom: 8 }}>
+                <div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: T.accent2 }}>
+                    {fmtDate(log.date)}
+                  </span>
+                  <span style={{ fontSize: 10, color: T.text3, marginLeft: 8 }}>
+                    {log.topicsStudied.length + " topic" +
+                     (log.topicsStudied.length !== 1 ? "s" : "")}
+                  </span>
+                </div>
+                <button onClick={() => {
+                  if (window.confirm("Delete this study log entry?")) onDelete(log.id);
+                }} style={{ ...btnGhost, color: T.red, borderColor: T.red + "44",
+                  fontSize: 11, padding: "3px 10px", flexShrink: 0 }}>
+                  Del
+                </button>
               </div>
-              <div style={{ flex: 1, display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {/* Topic badges — full width, wraps freely */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                 {log.topicsStudied.map(tid => (
-                  <Badge key={tid} label={getTopicName(tid)} color={T.accent} />
+                  <span key={tid} style={{
+                    fontSize: 11, color: T.accent2,
+                    background: T.accent + "22",
+                    border: "1px solid " + T.accent + "44",
+                    borderRadius: 12, padding: "3px 10px",
+                    maxWidth: "100%",
+                    wordBreak: "break-word",
+                  }}>
+                    {getTopicName(tid)}
+                  </span>
                 ))}
               </div>
-              <button onClick={() => {
-                if (window.confirm("Delete this study log entry?")) onDelete(log.id);
-              }} style={{ ...btnGhost, color: T.red, borderColor: T.red + "44", fontSize: 11 }}>
-                Del
-              </button>
             </div>
           ))}
         </div>
