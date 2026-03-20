@@ -33,7 +33,7 @@ import {
  * Instructions in README.md under "Google Drive Sync Setup".
  * Leave as empty string to hide the Google Sign-in option.
  */
-const GOOGLE_CLIENT_ID = "523616350993-easu9f28e8g4prf0dtfvp95bk5obcbkc.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "";
 
 /** Google Drive AppData folder — only this app can read/write it */
 const DRIVE_FILE_NAME  = "psc-tracker-backup.json";
@@ -166,10 +166,16 @@ export function useGoogleSync(getAllData, restoreAllData) {
         driveData = await dlRes.json();
       }
 
-      // Conflict resolution: use whichever is newer
+      // Conflict resolution:
+      // 1. If local data is empty (fresh install) — always restore from Drive
+      // 2. Otherwise use whichever has the newer timestamp
       let toUpload = localData;
-      if (driveData && (driveData._syncTimestamp || 0) > (localData._syncTimestamp || 0)) {
-        // Drive is newer — restore it locally
+      const localIsEmpty = !localData.syllabi?.length && !localData.papers?.length;
+      const driveIsNewer = driveData &&
+        (driveData._syncTimestamp || 0) > (localData._syncTimestamp || 0);
+
+      if (driveData && (localIsEmpty || driveIsNewer)) {
+        // Drive data is preferred — restore locally
         await restoreAllData(driveData);
         toUpload = driveData;
       }

@@ -147,81 +147,105 @@ function ExamTimers() {
     setTimers(updated);
   };
 
-  // Open Picture-in-Picture for an exam countdown
+  // Open Picture-in-Picture for exam countdown using canvas→video (works on Android)
   const handleExamPiP = async (timer) => {
-    if (!("documentPictureInPicture" in window)) {
-      alert(
-        "Floating countdown is not supported on this browser.\n\n" +
-        "To use it:\n" +
-        "• Make sure Chrome is updated to version 116 or above\n" +
-        "• Install the app to your home screen (Add to Home Screen)\n" +
-        "• Reopen the app from the home screen icon"
-      );
+    const videoEl = document.createElement("video");
+    if (!document.pictureInPictureEnabled || !videoEl.requestPictureInPicture) {
+      alert("Picture-in-Picture is not supported on this device.");
       return;
+    }
+    // Close any existing PiP
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture().catch(() => {});
     }
     setActivePipId(timer.id);
     try {
-      const pip = await window.documentPictureInPicture.requestWindow({
-        width: 260, height: 190,
-      });
-      pip.document.documentElement.style.cssText =
-        "margin:0;padding:0;background:#07090f;color:#e6edf3;height:100%;";
-      pip.document.body.style.cssText =
-        "margin:0;padding:0;display:flex;flex-direction:column;align-items:center;" +
-        "justify-content:center;height:100%;background:#07090f;padding:16px;box-sizing:border-box;";
+      const canvas = document.createElement("canvas");
+      canvas.width  = 320;
+      canvas.height = 220;
+      const ctx = canvas.getContext("2d");
 
-      // Self-contained countdown logic (no React) inside PiP
       const calcCD = (dtStr) => {
         try {
-          const target = new Date(dtStr).getTime();
-          const now    = Date.now();
-          const diff   = target - now;
-          if (isNaN(diff)) return { status: "error" };
-          if (diff <= 0)   return { status: "past" };
+          const diff = new Date(dtStr).getTime() - Date.now();
+          if (isNaN(diff) || diff <= 0) return null;
           const total = Math.floor(diff / 1000);
           return {
-            status:  "future",
             days:    Math.floor(total / 86400),
             hours:   Math.floor((total % 86400) / 3600),
             minutes: Math.floor((total % 3600) / 60),
           };
-        } catch { return { status: "error" }; }
+        } catch { return null; }
       };
 
-      const render = () => {
+      const drawFrame = () => {
+        ctx.fillStyle = "#07090f";
+        ctx.fillRect(0, 0, 320, 220);
         const cd = calcCD(timer.datetime);
-        const col = cd.status === "future"
-          ? (cd.days < 7 ? "#f85149" : cd.days < 30 ? "#d29922" : "#3fb950")
-          : "#8b949e";
-        const body = cd.status === "future"
-          ? "<div style='font-size:11px;color:#8b949e;margin-bottom:4px;'>" +
-              new Date(timer.datetime).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}) +
-            "</div>" +
-            "<div style='display:flex;gap:16px;margin:8px 0;'>" +
-              [["days",cd.days],["hrs",cd.hours],["min",cd.minutes]].map(([u,v]) =>
-                "<div style='text-align:center'>" +
-                "<div style='font-size:36px;font-weight:900;color:" + col + ";font-family:monospace;line-height:1'>" + v + "</div>" +
-                "<div style='font-size:10px;color:#8b949e'>" + u + "</div></div>"
-              ).join("") +
-            "</div>"
-          : "<div style='font-size:16px;color:#8b949e;margin:12px 0;'>" +
-              (cd.status === "past" ? "Exam completed" : "Invalid date") +
-            "</div>";
 
-        pip.document.body.innerHTML =
-          "<div style='font-size:13px;font-weight:700;color:#e6edf3;margin-bottom:4px;text-align:center'>" +
-            timer.name +
-          "</div>" + body;
+        // Exam name
+        ctx.fillStyle = "#e6edf3";
+        ctx.font      = "bold 18px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(timer.name, 160, 36);
+
+        if (!cd) {
+          ctx.fillStyle = "#8b949e";
+          ctx.font      = "16px sans-serif";
+          ctx.fillText("Exam completed", 160, 110);
+        } else {
+          const col = cd.days < 7 ? "#f85149" : cd.days < 30 ? "#d29922" : "#3fb950";
+          // Days
+          ctx.fillStyle = col;
+          ctx.font      = "bold 64px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(String(cd.days), 80, 130);
+          ctx.fillStyle = "#8b949e";
+          ctx.font      = "13px monospace";
+          ctx.fillText("days", 80, 152);
+          // Hours
+          ctx.fillStyle = col;
+          ctx.font      = "bold 40px monospace";
+          ctx.fillText(String(cd.hours).padStart(2,"0"), 190, 120);
+          ctx.fillStyle = "#8b949e";
+          ctx.font      = "13px monospace";
+          ctx.fillText("hrs", 190, 140);
+          // Minutes
+          ctx.fillStyle = col;
+          ctx.font      = "bold 40px monospace";
+          ctx.fillText(String(cd.minutes).padStart(2,"0"), 270, 120);
+          ctx.fillStyle = "#8b949e";
+          ctx.font      = "13px monospace";
+          ctx.fillText("min", 270, 140);
+          // Date
+          ctx.fillStyle = "#8b949e";
+          ctx.font      = "12px sans-serif";
+          ctx.fillText(new Date(timer.datetime).toLocaleDateString("en-IN",
+            { day:"numeric", month:"short", year:"numeric" }), 160, 190);
+        }
       };
 
-      render();
-      const id = pip.setInterval(render, 60000);
-      pip.addEventListener("pagehide", () => {
-        pip.clearInterval(id);
+      const stream = canvas.captureStream(0.5); // 0.5fps — enough for countdown
+      const video  = document.createElement("video");
+      video.srcObject = stream;
+      video.muted     = true;
+      video.style.cssText = "position:fixed;width:1px;height:1px;opacity:0.01;top:0;left:0;pointer-events:none;";
+      document.body.appendChild(video);
+
+      drawFrame();
+      const tick = setInterval(drawFrame, 30000); // redraw every 30s for countdown
+
+      await video.play();
+      await video.requestPictureInPicture();
+
+      video.addEventListener("leavepictureinpicture", () => {
+        clearInterval(tick);
+        video.remove();
         setActivePipId(null);
       });
-    } catch {
+    } catch (e) {
       setActivePipId(null);
+      alert("Could not open floating countdown: " + (e.message || "unknown error"));
     }
   };
 

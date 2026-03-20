@@ -1342,81 +1342,100 @@ export function StudyTimer() {
     endTimeRef.current = null;
   };
 
-  // Open Picture-in-Picture floating timer window
+  // Open Picture-in-Picture using canvas→video approach (works on Android Chrome)
   const handlePiP = async () => {
-    if (!("documentPictureInPicture" in window)) {
-      alert(
-        "Floating timer is not supported on this browser.\n\n" +
-        "To use it:\n" +
-        "• Make sure Chrome is updated to version 116 or above\n" +
-        "• Install the app to your home screen (Add to Home Screen)\n" +
-        "• Reopen the app from the home screen icon"
-      );
+    // Check for standard video PiP support (Android Chrome 70+)
+    const videoEl = document.createElement("video");
+    if (!document.pictureInPictureEnabled || !videoEl.requestPictureInPicture) {
+      alert("Picture-in-Picture is not supported on this device.");
       return;
     }
-    // Close existing PiP if open
-    if (pipRef.current && !pipRef.current.closed) {
-      pipRef.current.close();
+
+    // Close existing PiP if already open
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture().catch(() => {});
     }
+
     try {
-      const pip = await window.documentPictureInPicture.requestWindow({
-        width: 240, height: 210,
-      });
-      pipRef.current = pip;
+      // Create canvas to draw timer onto
+      const canvas = document.createElement("canvas");
+      canvas.width  = 320;
+      canvas.height = 240;
+      const ctx = canvas.getContext("2d");
 
-      // Inject HTML into PiP document
-      pip.document.documentElement.style.cssText =
-        "margin:0;padding:0;background:#07090f;color:#e6edf3;font-family:monospace;height:100%;";
-      pip.document.body.style.cssText =
-        "margin:0;padding:0;display:flex;flex-direction:column;align-items:center;" +
-        "justify-content:center;height:100%;background:#07090f;";
-      pip.document.body.innerHTML =
-        "<div id='pip-label' style='font-size:11px;color:#8b949e;margin-bottom:8px;letter-spacing:0.08em;'>📚 PSC STUDY TIMER</div>" +
-        "<div id='pip-time' style='font-size:48px;font-weight:900;color:#58a6ff;line-height:1;margin-bottom:8px;'>--:--:--</div>" +
-        "<div id='pip-status' style='font-size:11px;color:#8b949e;'></div>";
-
-      // Interval inside PiP to update display
-      const pipTick = pip.setInterval(() => {
+      const drawFrame = () => {
         const state = window.__pipTimerState;
-        const timeEl   = pip.document.getElementById("pip-time");
-        const statusEl = pip.document.getElementById("pip-status");
-        if (!timeEl || !statusEl) return;
-        if (state.done) {
-          timeEl.textContent   = "🎉 Done!";
-          timeEl.style.color   = "#3fb950";
-          timeEl.style.fontSize= "32px";
-          statusEl.textContent = "Session complete!";
-          return;
-        }
-        if (!state.endTime || !state.running) {
-          statusEl.textContent = "Paused";
-          return;
-        }
-        const left = Math.max(0, Math.round((state.endTime - Date.now()) / 1000));
-        const h    = Math.floor(left / 3600);
-        const m    = Math.floor((left % 3600) / 60);
-        const s    = left % 60;
-        timeEl.textContent   = String(h).padStart(2,"0") + ":" +
-                               String(m).padStart(2,"0") + ":" +
-                               String(s).padStart(2,"0");
-        statusEl.textContent = "Focus. You are doing great.";
-        // Colour shifts as time runs low
-        const prog = state.totalSecs > 0 ? (state.totalSecs - left) / state.totalSecs : 0;
-        timeEl.style.color   =
-          prog < 0.5 ? "#3fb950" :
-          prog < 0.75? "#d29922" :
-          prog < 0.9 ? "#f85149" : "#f85149";
-      }, 500);
-      pipInterval.current = pipTick;
+        ctx.fillStyle = "#07090f";
+        ctx.fillRect(0, 0, 320, 240);
 
-      // Cleanup when PiP is closed by user
-      pip.addEventListener("pagehide", () => {
-        pip.clearInterval(pipTick);
-        pipRef.current      = null;
+        if (state.done) {
+          ctx.fillStyle = "#3fb950";
+          ctx.font      = "bold 48px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText("Done!", 160, 120);
+          ctx.fillStyle = "#8b949e";
+          ctx.font      = "16px monospace";
+          ctx.fillText("Session complete!", 160, 155);
+        } else if (!state.endTime || !state.running) {
+          ctx.fillStyle = "#58a6ff";
+          ctx.font      = "bold 52px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText("Paused", 160, 130);
+        } else {
+          const left = Math.max(0, Math.round((state.endTime - Date.now()) / 1000));
+          const h = Math.floor(left / 3600);
+          const m = Math.floor((left % 3600) / 60);
+          const s = left % 60;
+          const timeStr = String(h).padStart(2,"0") + ":" +
+                          String(m).padStart(2,"0") + ":" +
+                          String(s).padStart(2,"0");
+
+          const prog = state.totalSecs > 0 ? (state.totalSecs - left) / state.totalSecs : 0;
+          ctx.fillStyle = prog < 0.5 ? "#3fb950"
+                        : prog < 0.75 ? "#d29922"
+                        : "#f85149";
+          ctx.font      = "bold 56px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(timeStr, 160, 130);
+
+          ctx.fillStyle = "#8b949e";
+          ctx.font      = "14px monospace";
+          ctx.fillText("PSC Study Timer", 160, 170);
+        }
+      };
+
+      // Capture canvas as video stream (30fps enough for a timer)
+      const stream = canvas.captureStream(1);
+      const video  = document.createElement("video");
+      video.srcObject = stream;
+      video.muted     = true;
+      video.style.cssText = "position:fixed;width:1px;height:1px;opacity:0.01;top:0;left:0;pointer-events:none;";
+      document.body.appendChild(video);
+      pipRef.current = video;
+
+      await video.play();
+
+      // Draw first frame then start interval
+      drawFrame();
+      const tick = setInterval(drawFrame, 500);
+      pipInterval.current = tick;
+
+      // Enter PiP
+      await video.requestPictureInPicture();
+
+      // Cleanup when PiP exits
+      video.addEventListener("leavepictureinpicture", () => {
+        clearInterval(tick);
         pipInterval.current = null;
+        video.remove();
+        pipRef.current = null;
       });
+
     } catch (e) {
-      // PiP denied or not supported — fail silently
+      // Clean up on failure
+      if (pipRef.current) { pipRef.current.remove(); pipRef.current = null; }
+      if (pipInterval.current) { clearInterval(pipInterval.current); pipInterval.current = null; }
+      alert("Could not open floating timer: " + (e.message || "unknown error"));
     }
   };
 
