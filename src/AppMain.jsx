@@ -630,6 +630,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
   const [expandModal, setExpandModal] = useState(null);
   const [selectedPaperId, setSelectedPaperId] = useState(null); // null = all papers
   const [paperSearch,     setPaperSearch]     = useState("");
+  const [dropdownOpen,    setDropdownOpen]    = useState(false);
 
   // Allow switching syllabus inside analytics without leaving the page
   const analyticsSyl = allSyllabi.find(s => s.id === analyticsSylId) || _syllabus;
@@ -832,55 +833,76 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
       {(() => {
         const sorted = [...papers].sort((a,b) => (b.date||"").localeCompare(a.date||""));
         const lower  = paperSearch.toLowerCase();
-        const filtered_ps = sorted.filter(p =>
+        const filteredPs = sorted.filter(p =>
           !lower ||
           (p.name||"").toLowerCase().includes(lower) ||
           (p.code||"").toLowerCase().includes(lower) ||
           (p.date||"").includes(lower)
         );
         const selectedPaper = papers.find(p => p.id === selectedPaperId);
+
+        // Display value in the input box
+        const inputVal = dropdownOpen
+          ? paperSearch
+          : selectedPaperId === null
+            ? "All Papers — Aggregate View"
+            : (selectedPaper?.name || selectedPaper?.code || "Paper");
+
         return (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 11, color: T.text3, marginBottom: 6 }}>
               View analytics for:
             </div>
+            {/* Click-outside overlay to close dropdown */}
+            {dropdownOpen && (
+              <div style={{ position: "fixed", inset: 0, zIndex: 199 }}
+                onClick={() => { setDropdownOpen(false); setPaperSearch(""); }} />
+            )}
             <div style={{ position: "relative", maxWidth: 360 }}>
-              {/* Search input */}
+              {/* Input */}
               <input
-                value={selectedPaperId === null ? paperSearch : (selectedPaper?.name || selectedPaper?.code || "")}
-                onChange={e => { setSelectedPaperId(null); setPaperSearch(e.target.value); }}
-                onFocus={() => { if (selectedPaperId !== null) { setSelectedPaperId(null); setPaperSearch(""); } }}
-                placeholder="Search papers or type to filter..."
-                style={{ ...inputStyle, width: "100%", paddingRight: 32, fontSize: 13 }}
+                value={inputVal}
+                readOnly={!dropdownOpen}
+                onChange={e => setPaperSearch(e.target.value)}
+                onClick={() => {
+                  setDropdownOpen(true);
+                  setPaperSearch("");
+                }}
+                placeholder="Select a paper..."
+                style={{ ...inputStyle, width: "100%", paddingRight: 32,
+                  fontSize: 13, cursor: dropdownOpen ? "text" : "pointer" }}
               />
-              {/* Clear / chevron icon */}
-              {(selectedPaperId !== null || paperSearch) ? (
+              {/* Chevron / clear */}
+              {selectedPaperId !== null && !dropdownOpen ? (
                 <button
-                  onClick={() => { setSelectedPaperId(null); setPaperSearch(""); }}
-                  style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
-                    background: "none", border: "none", color: T.text3, cursor: "pointer",
-                    fontSize: 14, padding: 0, lineHeight: 1 }}>
+                  onClick={e => { e.stopPropagation();
+                    setSelectedPaperId(null); setPaperSearch(""); setDropdownOpen(false); }}
+                  style={{ position: "absolute", right: 8, top: "50%",
+                    transform: "translateY(-50%)", background: "none", border: "none",
+                    color: T.text3, cursor: "pointer", fontSize: 14, padding: 0 }}>
                   ✕
                 </button>
               ) : (
                 <span style={{ position: "absolute", right: 10, top: "50%",
                   transform: "translateY(-50%)", color: T.text3, fontSize: 10,
-                  pointerEvents: "none" }}>▼</span>
+                  pointerEvents: "none" }}>{dropdownOpen ? "▲" : "▼"}</span>
               )}
 
-              {/* Dropdown list — shown when no paper selected and input has focus-like state */}
-              {selectedPaperId === null && (
+              {/* Dropdown list */}
+              {dropdownOpen && (
                 <div style={{
                   position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
-                  background: "#0d1117",
-                  border: "1px solid " + T.border,
-                  borderRadius: 8, zIndex: 200,
-                  maxHeight: 260, overflowY: "auto",
+                  background: "#0d1117", border: "1px solid " + T.border,
+                  borderRadius: 8, zIndex: 200, maxHeight: 260, overflowY: "auto",
                   boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
                 }}>
                   {/* All Papers option */}
                   <div
-                    onClick={() => { setSelectedPaperId(null); setPaperSearch(""); }}
+                    onClick={() => {
+                      setSelectedPaperId(null);
+                      setPaperSearch("");
+                      setDropdownOpen(false);
+                    }}
                     style={{
                       padding: "10px 14px", cursor: "pointer",
                       fontSize: 13, color: T.accent2, fontWeight: 700,
@@ -889,16 +911,20 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
                     }}>
                     📊 All Papers — Aggregate View
                   </div>
-                  {filtered_ps.length === 0 ? (
+                  {filteredPs.length === 0 ? (
                     <div style={{ padding: "12px 14px", fontSize: 12, color: T.text3 }}>
                       No papers match your search
                     </div>
                   ) : (
-                    filtered_ps.map(p => {
+                    filteredPs.map(p => {
                       const sc = p.computed?.totalMarks ?? null;
                       return (
                         <div key={p.id}
-                          onClick={() => { setSelectedPaperId(p.id); setPaperSearch(""); }}
+                          onClick={() => {
+                            setSelectedPaperId(p.id);
+                            setPaperSearch("");
+                            setDropdownOpen(false);
+                          }}
                           style={{
                             padding: "10px 14px", cursor: "pointer",
                             borderBottom: "1px solid " + T.border + "66",
@@ -934,8 +960,8 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
               )}
             </div>
 
-            {/* Selected paper badge */}
-            {selectedPaperId !== null && selectedPaper && (
+            {/* Selected paper label */}
+            {selectedPaperId !== null && selectedPaper && !dropdownOpen && (
               <div style={{ marginTop: 8, fontSize: 11, color: T.purple }}>
                 {"Showing: " + (selectedPaper.name || selectedPaper.code || "Paper")}
                 {selectedPaper.date && " · " + fmtDate(selectedPaper.date)}

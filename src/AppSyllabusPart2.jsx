@@ -69,14 +69,17 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
     onSave(form);
   };
 
-  // Called on every OMR auto-save (answer tap, guess toggle, topic tag)
-  // Does NOT close the OMR sheet — user stays in the sheet
+  // Called on every OMR change (answer tap, guess toggle, topic tag)
+  // Only updates form state — does NOT call onSave (which would close the paper modal)
+  // Data is safe in form state and will be saved when user clicks Save Paper
   const handleOMRUpdate = ({ omr, computed, bookletCode }) => {
-    const updated = { ...form, omr, computed, bookletCode };
-    setForm(updated);
+    setForm(f => ({ ...f, omr, computed, bookletCode }));
     setDirty(true);
-    // Auto-persist for existing papers so data is never lost
-    if (initial) onSave(updated);
+    // Write to sessionStorage as safety net so OMR data survives accidental close
+    try {
+      const draft = { ...form, omr, computed, bookletCode };
+      sessionStorage.setItem("psc-draft-paper", JSON.stringify(draft));
+    } catch { /* ignore quota errors */ }
   };
 
   // Called only when user taps "Close OMR" — closes the sheet
