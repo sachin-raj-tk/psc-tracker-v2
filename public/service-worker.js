@@ -1,5 +1,5 @@
-/* PSC Tracker Service Worker v1.0 */
-const CACHE_NAME = 'psc-tracker-v1';
+/* PSC Tracker Service Worker v1.1 */
+const CACHE_NAME = 'psc-tracker-v2';
 
 // All assets to cache on install
 const PRECACHE_ASSETS = [
@@ -9,6 +9,14 @@ const PRECACHE_ASSETS = [
   '/static/js/bundle.js',
   '/static/js/vendors~main.chunk.js',
   '/manifest.json',
+  '/icons/icon-72x72.png',
+  '/icons/icon-96x96.png',
+  '/icons/icon-128x128.png',
+  '/icons/icon-144x144.png',
+  '/icons/icon-152x152.png',
+  '/icons/icon-192x192.png',
+  '/icons/icon-384x384.png',
+  '/icons/icon-512x512.png',
 ];
 
 // Install — cache core assets immediately
