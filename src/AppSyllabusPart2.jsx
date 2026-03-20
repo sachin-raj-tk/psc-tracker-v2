@@ -69,18 +69,19 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
     onSave(form);
   };
 
-  const handleOMRSave = ({ omr, computed, bookletCode }) => {
-    // Update form state AND immediately persist to localStorage
-    // This prevents data loss if user closes the paper modal without clicking Save Paper
+  // Called on every OMR auto-save (answer tap, guess toggle, topic tag)
+  // Does NOT close the OMR sheet — user stays in the sheet
+  const handleOMRUpdate = ({ omr, computed, bookletCode }) => {
     const updated = { ...form, omr, computed, bookletCode };
     setForm(updated);
     setDirty(true);
+    // Auto-persist for existing papers so data is never lost
+    if (initial) onSave(updated);
+  };
+
+  // Called only when user taps "Close OMR" — closes the sheet
+  const handleOMRClose = () => {
     setShowOMR(false);
-    // Auto-persist: save the whole paper immediately on OMR save
-    if (initial) {
-      // Editing existing paper — save immediately
-      onSave(updated);
-    }
   };
 
   const answered   = Object.values(form.omr || {}).filter(e => e?.answer).length;
@@ -297,12 +298,7 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
                 <button onClick={() => setShowOMR(true)} style={btnPrimary(T.accent)}>
                   {answered > 0 ? `Edit OMR Sheet (${answered} answered, ${guessCount} guesses)` : "Open OMR Sheet"}
                 </button>
-                {answered > 0 && (
-                  <button
-                    onClick={() => { if (window.confirm("Clear all OMR entries?")) { set("omr", emptyOMR()); set("computed", null); }}}
-                    style={{ ...btnGhost, color: T.red, borderColor: T.red + "44" }}
-                  >Clear OMR</button>
-                )}
+
               </div>
             </div>
 
@@ -501,8 +497,8 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
           bookletCode={form.bookletCode}
           syllabus={syllabus}
           rangeOverride={form.questionRangeOverride}
-          onSave={handleOMRSave}
-          onClose={() => setShowOMR(false)}
+          onSave={handleOMRUpdate}
+          onClose={handleOMRClose}
         />
       )}
     </>
@@ -634,10 +630,26 @@ export function PaperDetail({ paper, syllabus, onEdit, onClose, onShare }) {
             {paper.date && <span style={{ fontSize: 12, color: T.text3, marginLeft: 8 }}>{fmtDate(paper.date)}</span>}
             {paper.bookletCode && <span style={{ fontSize: 12, color: T.text2, marginLeft: 8 }}>Booklet {paper.bookletCode}</span>}
             {c && (
-              <div style={{ fontSize: 12, color: T.text2, marginTop: 4 }}>
-                ✓ {c.totalCorrect} correct &nbsp; ✗ {c.totalWrong} wrong &nbsp;
-                ⊘ {c.totalDeleted} deleted &nbsp; — {c.totalUnattempted} unattempted &nbsp;
-                Penalty: <span style={{ color: T.orange }}>−{c.totalPenalty.toFixed(2)}</span>
+              <div style={{ fontSize: 12, marginTop: 6,
+                display: "flex", flexWrap: "wrap", gap: "4px 14px",
+                alignItems: "center" }}>
+                <span style={{ color: T.green, fontWeight: 700 }}>
+                  ✓ {c.totalCorrect} correct
+                </span>
+                <span style={{ color: T.red, fontWeight: 700 }}>
+                  ✗ {c.totalWrong} wrong
+                </span>
+                {c.totalDeleted > 0 && (
+                  <span style={{ color: T.text3 }}>
+                    ⊘ {c.totalDeleted} deleted
+                  </span>
+                )}
+                <span style={{ color: T.text3 }}>
+                  — {c.totalUnattempted} unattempted
+                </span>
+                <span style={{ color: T.orange }}>
+                  −{c.totalPenalty.toFixed(2)} penalty
+                </span>
               </div>
             )}
           </div>

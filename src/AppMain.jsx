@@ -629,6 +629,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
   const [analyticsSylId, setAnalyticsSylId] = useState(_syllabus.id);
   const [expandModal, setExpandModal] = useState(null);
   const [selectedPaperId, setSelectedPaperId] = useState(null); // null = all papers
+  const [paperSearch,     setPaperSearch]     = useState("");
 
   // Allow switching syllabus inside analytics without leaving the page
   const analyticsSyl = allSyllabi.find(s => s.id === analyticsSylId) || _syllabus;
@@ -827,36 +828,122 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
         </div>
       )}
 
-      {/* ── Paper switcher ── */}
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 11, color: T.text3, marginBottom: 6 }}>View:</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button
-            onClick={() => setSelectedPaperId(null)}
-            style={{
-              ...btnGhost, fontSize: 12, padding: "5px 12px",
-              background: selectedPaperId === null ? T.accent + "33" : "transparent",
-              color:      selectedPaperId === null ? T.accent2 : T.text2,
-              borderColor:selectedPaperId === null ? T.accent   : T.border2,
-            }}>
-            All Papers
-          </button>
-          {[...papers].sort((a,b) => (b.date||"").localeCompare(a.date||"")).map(p => (
-            <button key={p.id}
-              onClick={() => setSelectedPaperId(p.id)}
-              style={{
-                ...btnGhost, fontSize: 11, padding: "5px 10px",
-                background: selectedPaperId === p.id ? T.purple + "33" : "transparent",
-                color:      selectedPaperId === p.id ? T.purple          : T.text2,
-                borderColor:selectedPaperId === p.id ? T.purple          : T.border2,
-                maxWidth: 150, overflow: "hidden",
-                textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}>
-              {p.name || p.code || "Paper"}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* ── Paper switcher — searchable dropdown ── */}
+      {(() => {
+        const sorted = [...papers].sort((a,b) => (b.date||"").localeCompare(a.date||""));
+        const lower  = paperSearch.toLowerCase();
+        const filtered_ps = sorted.filter(p =>
+          !lower ||
+          (p.name||"").toLowerCase().includes(lower) ||
+          (p.code||"").toLowerCase().includes(lower) ||
+          (p.date||"").includes(lower)
+        );
+        const selectedPaper = papers.find(p => p.id === selectedPaperId);
+        return (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 6 }}>
+              View analytics for:
+            </div>
+            <div style={{ position: "relative", maxWidth: 360 }}>
+              {/* Search input */}
+              <input
+                value={selectedPaperId === null ? paperSearch : (selectedPaper?.name || selectedPaper?.code || "")}
+                onChange={e => { setSelectedPaperId(null); setPaperSearch(e.target.value); }}
+                onFocus={() => { if (selectedPaperId !== null) { setSelectedPaperId(null); setPaperSearch(""); } }}
+                placeholder="Search papers or type to filter..."
+                style={{ ...inputStyle, width: "100%", paddingRight: 32, fontSize: 13 }}
+              />
+              {/* Clear / chevron icon */}
+              {(selectedPaperId !== null || paperSearch) ? (
+                <button
+                  onClick={() => { setSelectedPaperId(null); setPaperSearch(""); }}
+                  style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                    background: "none", border: "none", color: T.text3, cursor: "pointer",
+                    fontSize: 14, padding: 0, lineHeight: 1 }}>
+                  ✕
+                </button>
+              ) : (
+                <span style={{ position: "absolute", right: 10, top: "50%",
+                  transform: "translateY(-50%)", color: T.text3, fontSize: 10,
+                  pointerEvents: "none" }}>▼</span>
+              )}
+
+              {/* Dropdown list — shown when no paper selected and input has focus-like state */}
+              {selectedPaperId === null && (
+                <div style={{
+                  position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
+                  background: "#0d1117",
+                  border: "1px solid " + T.border,
+                  borderRadius: 8, zIndex: 200,
+                  maxHeight: 260, overflowY: "auto",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+                }}>
+                  {/* All Papers option */}
+                  <div
+                    onClick={() => { setSelectedPaperId(null); setPaperSearch(""); }}
+                    style={{
+                      padding: "10px 14px", cursor: "pointer",
+                      fontSize: 13, color: T.accent2, fontWeight: 700,
+                      borderBottom: "1px solid " + T.border,
+                      background: T.accent + "15",
+                    }}>
+                    📊 All Papers — Aggregate View
+                  </div>
+                  {filtered_ps.length === 0 ? (
+                    <div style={{ padding: "12px 14px", fontSize: 12, color: T.text3 }}>
+                      No papers match your search
+                    </div>
+                  ) : (
+                    filtered_ps.map(p => {
+                      const sc = p.computed?.totalMarks ?? null;
+                      return (
+                        <div key={p.id}
+                          onClick={() => { setSelectedPaperId(p.id); setPaperSearch(""); }}
+                          style={{
+                            padding: "10px 14px", cursor: "pointer",
+                            borderBottom: "1px solid " + T.border + "66",
+                            display: "flex", justifyContent: "space-between",
+                            alignItems: "center", gap: 10,
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = T.surface}
+                          onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, color: T.text, fontWeight: 600,
+                              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {p.name || p.code || "Paper"}
+                            </div>
+                            {p.date && (
+                              <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>
+                                {fmtDate(p.date)}
+                                {p.code && " · " + p.code}
+                              </div>
+                            )}
+                          </div>
+                          {sc !== null && (
+                            <span style={{ fontFamily: "monospace", fontSize: 13,
+                              fontWeight: 800, color: scoreColor(pct(sc, 100)),
+                              flexShrink: 0 }}>
+                              {sc.toFixed(1)}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Selected paper badge */}
+            {selectedPaperId !== null && selectedPaper && (
+              <div style={{ marginTop: 8, fontSize: 11, color: T.purple }}>
+                {"Showing: " + (selectedPaper.name || selectedPaper.code || "Paper")}
+                {selectedPaper.date && " · " + fmtDate(selectedPaper.date)}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Date filter + cutoff ── */}
       <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
