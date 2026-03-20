@@ -37,6 +37,8 @@ import {
   RevisionCounter,
   StreakPanel,
   StudyTimer,
+  StudyHeatmap,
+  QuickLogPanel,
 } from "./AppStudy";
 
 import {
@@ -279,7 +281,7 @@ function ExamTimers() {
 /**
  * Dashboard — KPI cards, score trend bar chart, and latest paper summary.
  */
-function Dashboard({ papers, syllabus, streak, onAddPaper, onNavigate }) {
+function Dashboard({ papers, syllabus, streak, logs, onSaveLog, onAddPaper, onNavigate }) {
   if (!papers.length) return (
     <div>
       <div style={{ ...cardStyle, textAlign: "center", padding: 48, marginBottom: 16 }}>
@@ -292,6 +294,9 @@ function Dashboard({ papers, syllabus, streak, onAddPaper, onNavigate }) {
         </div>
         <button onClick={onAddPaper} style={btnPrimary(T.accent)}>+ Add First Paper</button>
       </div>
+      {/* Quick check-in */}
+      <QuickLogPanel syllabus={syllabus} logs={logs} onSaveLog={onSaveLog} />
+
       {/* Exam Countdowns */}
       <ExamTimers />
 
@@ -402,6 +407,9 @@ function Dashboard({ papers, syllabus, streak, onAddPaper, onNavigate }) {
           </div>
         </Section>
       )}
+
+      {/* Quick check-in */}
+      <QuickLogPanel syllabus={syllabus} logs={logs} onSaveLog={onSaveLog} />
 
       {/* Exam Countdowns */}
       <ExamTimers />
@@ -575,6 +583,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
   const [editCutoff,  setEditCutoff]  = useState(false);
   const [cutoffInput, setCutoffInput] = useState(cutoff || "");
   const [analyticsSylId, setAnalyticsSylId] = useState(_syllabus.id);
+  const [expandModal, setExpandModal] = useState(null); // "weakSubj"|"strongSubj"|"weakTopic"|"strongTopic"
 
   // Allow switching syllabus inside analytics without leaving the page
   const analyticsSyl = allSyllabi.find(s => s.id === analyticsSylId) || _syllabus;
@@ -864,12 +873,12 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
         </div>
       </Section>
 
-      {/* ── Weak / Strong Subjects (with Q count) ── */}
+      {/* ── Weak / Strong Subjects (with Q count + See All) ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
         {[
-          { title: "🔴 Weakest Subjects",   data: [...subjAvg].sort((a, b) => a.avgPct - b.avgPct).slice(0, 3), color: T.red   },
-          { title: "🟢 Strongest Subjects", data: [...subjAvg].sort((a, b) => b.avgPct - a.avgPct).slice(0, 3), color: T.green },
-        ].map(({ title, data, color }) => (
+          { title: "🔴 Weakest Subjects",   key: "weakSubj",   data: [...subjAvg].sort((a,b) => a.avgPct - b.avgPct).slice(0,3), color: T.red   },
+          { title: "🟢 Strongest Subjects", key: "strongSubj", data: [...subjAvg].sort((a,b) => b.avgPct - a.avgPct).slice(0,3), color: T.green },
+        ].map(({ title, key, data, color }) => (
           <Section key={title} title={title} accent={color}>
             {data.map((s, i) => (
               <div key={s.id} style={{ marginBottom: 12 }}>
@@ -883,17 +892,23 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
                 </div>
               </div>
             ))}
+            {subjAvg.length > 3 && (
+              <button onClick={() => setExpandModal(key)}
+                style={{ ...btnGhost, width: "100%", fontSize: 11, marginTop: 4 }}>
+                {"See all " + subjAvg.length + " subjects →"}
+              </button>
+            )}
           </Section>
         ))}
       </div>
 
-      {/* ── Weak / Strong Topics (with Q count) ── */}
+      {/* ── Weak / Strong Topics (with Q count + See All) ── */}
       {topicList.length >= 2 && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
           {[
-            { title: "🔴 Weakest Topics",   data: [...topicList].sort((a, b) => a.acc - b.acc).slice(0, 3),  color: T.red   },
-            { title: "🟢 Strongest Topics", data: [...topicList].sort((a, b) => b.acc - a.acc).slice(0, 3), color: T.green },
-          ].map(({ title, data, color }) => (
+            { title: "🔴 Weakest Topics",   key: "weakTopic",   data: [...topicList].sort((a,b) => a.acc - b.acc).slice(0,3),  color: T.red   },
+            { title: "🟢 Strongest Topics", key: "strongTopic", data: [...topicList].sort((a,b) => b.acc - a.acc).slice(0,3), color: T.green },
+          ].map(({ title, key, data, color }) => (
             <Section key={title} title={title} accent={color}>
               {data.map((t, i) => (
                 <div key={t.id} style={{ marginBottom: 12 }}>
@@ -907,6 +922,12 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
                   </div>
                 </div>
               ))}
+              {topicList.length > 3 && (
+                <button onClick={() => setExpandModal(key)}
+                  style={{ ...btnGhost, width: "100%", fontSize: 11, marginTop: 4 }}>
+                  {"See all " + topicList.length + " topics →"}
+                </button>
+              )}
             </Section>
           ))}
         </div>
@@ -1031,6 +1052,37 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
                 {"First " + firstHalf.length + ": " + avgFirst.toFixed(1) +
                  " → Last " + secondHalf.length + ": " + avgSecond.toFixed(1)}
               </div>
+              {/* Compound progress projection */}
+              {(() => {
+                if (!cutoff) return null;
+                if (scoreAvg >= cutoff) return (
+                  <div style={{ marginTop: 10, padding: "8px 12px",
+                    background: T.green + "22", borderRadius: 6,
+                    fontSize: 11, color: T.green, fontWeight: 700 }}>
+                    You are above the cutoff! 🏆
+                  </div>
+                );
+                if (improvDelta <= 0) return (
+                  <div style={{ marginTop: 10, fontSize: 11, color: T.text3 }}>
+                    No improvement trend yet. Keep going — results lag behind effort.
+                  </div>
+                );
+                const ratePerPaper = improvDelta / (secondHalf.length || 1);
+                const papersNeeded = Math.ceil((cutoff - scoreAvg) / ratePerPaper);
+                if (papersNeeded > 100 || papersNeeded <= 0) return null;
+                return (
+                  <div style={{ marginTop: 10, padding: "8px 12px",
+                    background: T.accent + "15", borderRadius: 6,
+                    fontSize: 11, color: T.text2, lineHeight: 1.6 }}>
+                    At this rate, you will reach the cutoff of{" "}
+                    <strong style={{ color: T.yellow }}>{cutoff}</strong>{" "}
+                    in approximately{" "}
+                    <strong style={{ color: T.accent2 }}>
+                      {papersNeeded + " more paper" + (papersNeeded !== 1 ? "s" : "")}
+                    </strong>.
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div style={{ textAlign: "center", padding: 20, color: T.text3, fontSize: 12 }}>
@@ -1198,6 +1250,74 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
           </div>
         </Section>
       )}
+
+      {/* ── Expand Modals for Weak/Strong cards ── */}
+      {expandModal && (() => {
+        const isSubj  = expandModal === "weakSubj" || expandModal === "strongSubj";
+        const isWeak  = expandModal === "weakSubj" || expandModal === "weakTopic";
+        const title   = isWeak
+          ? (isSubj ? "🔴 All Subjects — Weakest First" : "🔴 All Topics — Weakest First")
+          : (isSubj ? "🟢 All Subjects — Strongest First" : "🟢 All Topics — Strongest First");
+        const color   = isWeak ? T.red : T.green;
+
+        if (isSubj) {
+          const sorted = [...subjAvg].sort((a,b) => isWeak ? a.avgPct - b.avgPct : b.avgPct - a.avgPct);
+          return (
+            <Modal title={title} onClose={() => setExpandModal(null)}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: "65vh", overflowY: "auto" }}>
+                {sorted.map((s, i) => (
+                  <div key={s.id} style={{ padding: "10px 12px", borderRadius: 8,
+                    background: T.surface, border: "1px solid " + T.border }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>
+                        {"#" + (i+1) + " " + s.name}
+                      </span>
+                      <Badge label={s.avgPct + "%"} color={scoreColor(s.avgPct)} />
+                    </div>
+                    <Bar value={s.avg} max={s.maxMarks} height={8} />
+                    <div style={{ fontSize: 10, color: T.text3, marginTop: 4, display: "flex", gap: 16 }}>
+                      <span>{s.avg.toFixed(1) + "/" + s.maxMarks + " avg marks"}</span>
+                      <span>{"from " + s.totalQ + " question" + (s.totalQ !== 1 ? "s" : "")}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Modal>
+          );
+        } else {
+          const sorted = [...topicList].sort((a,b) => isWeak ? a.acc - b.acc : b.acc - a.acc);
+          return (
+            <Modal title={title} onClose={() => setExpandModal(null)}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "65vh", overflowY: "auto" }}>
+                {sorted.map((t, i) => (
+                  <div key={t.id} style={{ padding: "10px 12px", borderRadius: 8,
+                    background: T.surface, border: "1px solid " + T.border }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, gap: 8 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ fontSize: 12, color: T.text }}>
+                          {"#" + (i+1) + " "}
+                          {t.topicNo
+                            ? <span style={{ fontSize: 10, color: T.text3,
+                                fontFamily: "monospace", marginRight: 4 }}>
+                                {"[" + t.topicNo + "]"}
+                              </span>
+                            : null}
+                          {t.name}
+                        </span>
+                        <div style={{ fontSize: 10, color: T.text3, marginTop: 2 }}>
+                          {t.subjName + " · " + t.correct + "/" + t.total + " correct"}
+                        </div>
+                      </div>
+                      <Badge label={t.acc + "%"} color={scoreColor(t.acc)} />
+                    </div>
+                    <Bar value={t.acc} max={100} height={6} />
+                  </div>
+                ))}
+              </div>
+            </Modal>
+          );
+        }
+      })()}
     </div>
   );
 }
@@ -1527,6 +1647,7 @@ export default function App() {
         {activeSyl && page === "dashboard" && (
           <Dashboard
             papers={activePapers} syllabus={activeSyl} streak={streak}
+            logs={logs} onSaveLog={saveLog}
             onAddPaper={() => setModal({ type: "addPaper" })}
             onNavigate={setPage}
           />

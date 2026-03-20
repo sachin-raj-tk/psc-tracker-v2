@@ -175,6 +175,358 @@ export function useStudyTracker(syllabus, onUpdateSyllabus) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// STUDY HEATMAP — 26-week contribution calendar
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function heatColor(count) {
+  if (count === 0) return "#1a1f2e";
+  if (count === 1) return "#2d3a6b";
+  if (count <= 3)  return "#3d52b8";
+  if (count <= 6)  return "#5b73e8";
+  return "#f59e0b";
+}
+
+/**
+ * StudyHeatmap — 26-week contribution grid.
+ * Columns = weeks (oldest left, newest right).
+ * Rows = Mon(0)...Sun(6). Tap a cell to see day detail.
+ */
+export function StudyHeatmap({ logs }) {
+  const [tooltip, setTooltip] = useState(null); // {date, count, topics, rectTop, rectLeft}
+
+  // Build date -> {count, topics[]} map from logs
+  const logMap = {};
+  (logs || []).forEach(l => {
+    if (l.date) {
+      logMap[l.date] = {
+        count:  (l.topicsStudied || []).length,
+        topics: l.topicsStudied || [],
+      };
+    }
+  });
+
+  // Generate 26 weeks of dates — oldest first
+  const WEEKS = 26;
+  const todayDate = new Date();
+  todayDate.setHours(0, 0, 0, 0);
+  const todayISO = todayDate.toISOString().slice(0, 10);
+  const totalDays = WEEKS * 7;
+
+  // grid[col][row] = ISO date string
+  const allDates = [];
+  for (let i = totalDays - 1; i >= 0; i--) {
+    const d = new Date(todayDate);
+    d.setDate(todayDate.getDate() - i);
+    allDates.push(d.toISOString().slice(0, 10));
+  }
+  const grid = [];
+  for (let col = 0; col < WEEKS; col++) {
+    grid.push(allDates.slice(col * 7, col * 7 + 7));
+  }
+
+  // Month labels: show when month changes, min 3 cols gap
+  const monthLabels = {};
+  let prevLabelCol = -4;
+  for (let col = 0; col < WEEKS; col++) {
+    const thisMonth = grid[col][0].slice(5, 7);
+    const prevMonth = col > 0 ? grid[col - 1][0].slice(5, 7) : null;
+    if (thisMonth !== prevMonth && col - prevLabelCol >= 3) {
+      const dt = new Date(grid[col][0] + "T00:00:00");
+      monthLabels[col] = dt.toLocaleString("en-IN", { month: "short" });
+      prevLabelCol = col;
+    }
+  }
+
+  const CELL = 11; // px per cell
+  const GAP  = 2;  // px gap
+
+  // Day labels Mon-Sun
+  const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
+
+  // Total days studied
+  const daysStudied = Object.values(logMap).filter(v => v.count > 0).length;
+
+  const handleCellClick = (e, dateStr) => {
+    const entry = logMap[dateStr];
+    const rect  = e.currentTarget.getBoundingClientRect();
+    setTooltip({
+      date:   dateStr,
+      count:  entry ? entry.count : 0,
+      topics: entry ? entry.topics : [],
+      top:    rect.top + window.scrollY,
+      left:   rect.left,
+    });
+  };
+
+  return (
+    <div style={{ ...cardStyle, marginBottom: 16 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 12 }}>
+        Study Activity
+      </div>
+
+      {/* Scrollable grid */}
+      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4 }}
+        onClick={() => setTooltip(null)}>
+
+        {/* Month labels row */}
+        <div style={{ display: "flex", marginBottom: 4, marginLeft: 18 }}>
+          {grid.map((_, col) => (
+            <div key={col} style={{
+              width: CELL + GAP,
+              fontSize: 9, color: T.text3,
+              flexShrink: 0, textAlign: "left",
+            }}>
+              {monthLabels[col] || ""}
+            </div>
+          ))}
+        </div>
+
+        {/* Grid rows */}
+        <div style={{ display: "flex", gap: 0 }}>
+          {/* Day labels */}
+          <div style={{ display: "flex", flexDirection: "column",
+            gap: GAP, marginRight: 4, flexShrink: 0 }}>
+            {DAY_LABELS.map((d, i) => (
+              <div key={i} style={{
+                width: 12, height: CELL,
+                fontSize: 8, color: T.text3,
+                display: "flex", alignItems: "center",
+              }}>{i % 2 === 0 ? d : ""}</div>
+            ))}
+          </div>
+
+          {/* Week columns */}
+          {grid.map((week, col) => (
+            <div key={col} style={{
+              display: "flex", flexDirection: "column",
+              gap: GAP, marginRight: GAP, flexShrink: 0,
+            }}>
+              {week.map((dateStr, row) => {
+                const entry   = logMap[dateStr];
+                const count   = entry ? entry.count : 0;
+                const isToday = dateStr === todayISO;
+                const isFuture = dateStr > todayISO;
+                return (
+                  <div key={row}
+                    onClick={e => { e.stopPropagation(); if (!isFuture) handleCellClick(e, dateStr); }}
+                    style={{
+                      width: CELL, height: CELL,
+                      borderRadius: 2,
+                      background: isFuture ? "transparent" : heatColor(count),
+                      outline: isToday ? "1.5px solid " + T.accent2 : "none",
+                      outlineOffset: "1px",
+                      cursor: isFuture ? "default" : "pointer",
+                      flexShrink: 0,
+                      transition: "transform 0.1s",
+                    }}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Legend + stats */}
+      <div style={{ display: "flex", alignItems: "center",
+        gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+          {[[0,"0"],[1,"1"],[2,"2-3"],[4,"4-6"],[7,"7+"]].map(([n, label]) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              <div style={{ width: CELL, height: CELL, borderRadius: 2,
+                background: heatColor(n) }} />
+              <span style={{ fontSize: 9, color: T.text3 }}>{label}</span>
+            </div>
+          ))}
+        </div>
+        <span style={{ fontSize: 10, color: T.text3, marginLeft: "auto" }}>
+          {daysStudied + " day" + (daysStudied !== 1 ? "s" : "") + " studied"}
+        </span>
+      </div>
+
+      {/* Tooltip */}
+      {tooltip && (
+        <div style={{
+          position: "fixed",
+          top: Math.min(tooltip.top - 80, window.innerHeight - 120),
+          left: Math.min(tooltip.left, window.innerWidth - 200),
+          zIndex: 500,
+          background: T.surface,
+          border: "1px solid " + T.border,
+          borderRadius: 8, padding: "10px 14px",
+          fontSize: 11, color: T.text2,
+          boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+          maxWidth: 200,
+          pointerEvents: "none",
+        }}>
+          <div style={{ fontWeight: 700, color: T.text, marginBottom: 4 }}>
+            {new Date(tooltip.date + "T00:00:00").toLocaleDateString("en-IN", {
+              weekday: "short", day: "numeric", month: "short", year: "numeric"
+            })}
+          </div>
+          {tooltip.count === 0 ? (
+            <div style={{ color: T.text3 }}>No study logged</div>
+          ) : (
+            <div>
+              <div style={{ color: T.accent2, marginBottom: 3 }}>
+                {tooltip.count + " topic" + (tooltip.count !== 1 ? "s" : "") + " studied"}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// QUICK LOG PANEL — one-tap daily check-in for Dashboard
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * QuickLogPanel — minimal study check-in for Dashboard.
+ * If already logged today: shows a green confirmation card.
+ * If not: shows "Did you study today?" with a topic picker and confirm button.
+ */
+export function QuickLogPanel({ syllabus, logs, onSaveLog }) {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const todayLog = (logs || []).find(l => l.date === todayISO);
+
+  const [showPicker, setShowPicker]   = useState(false);
+  const [selected,   setSelected]     = useState([]);
+  const [search,     setSearch]       = useState("");
+  const [saving,     setSaving]       = useState(false);
+
+  // All topics flattened from syllabus
+  const allTopics = (syllabus?.subjects || []).flatMap(s =>
+    s.topics.map(t => ({ ...t, subjectName: s.name }))
+  );
+
+  const visible = search
+    ? allTopics.filter(t => matchSearch(t.name + " " + t.subjectName, search))
+    : allTopics;
+
+  const toggle = (id) =>
+    setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const handleConfirm = async () => {
+    if (selected.length === 0) return;
+    setSaving(true);
+    await onSaveLog({ date: todayISO, topicsStudied: selected, notes: "" });
+    setShowPicker(false);
+    setSelected([]);
+    setSearch("");
+    setSaving(false);
+  };
+
+  // Already logged today
+  if (todayLog) {
+    return (
+      <div style={{ ...cardStyle, marginBottom: 16,
+        borderLeft: "4px solid " + T.green, background: T.green + "0a" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 22 }}>✅</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.green }}>
+              Studied today!
+            </div>
+            <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+              {todayLog.topicsStudied.length + " topic" +
+               (todayLog.topicsStudied.length !== 1 ? "s" : "") + " logged"}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Picker open
+  if (showPicker) {
+    return (
+      <div style={{ ...cardStyle, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10 }}>
+          What did you study today?
+        </div>
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search topics..."
+          style={{ ...inputStyle, marginBottom: 10, fontSize: 12 }} />
+        <div style={{ maxHeight: 200, overflowY: "auto",
+          display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
+          {visible.map(t => (
+            <div key={t.id}
+              onClick={() => toggle(t.id)}
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "7px 10px", borderRadius: 6, cursor: "pointer",
+                background: selected.includes(t.id) ? T.accent + "22" : T.surface,
+                border: "1px solid " + (selected.includes(t.id) ? T.accent : T.border),
+              }}>
+              <div style={{
+                width: 16, height: 16, borderRadius: 3, flexShrink: 0,
+                background: selected.includes(t.id) ? T.accent : "transparent",
+                border: "2px solid " + (selected.includes(t.id) ? T.accent : T.border2),
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                {selected.includes(t.id) && (
+                  <span style={{ fontSize: 10, color: "#fff" }}>✓</span>
+                )}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, color: T.text }}>
+                  {t.topicNo
+                    ? <span style={{ fontSize: 10, color: T.text3, marginRight: 5,
+                        fontFamily: "monospace" }}>{"[" + t.topicNo + "]"}</span>
+                    : null}
+                  {t.name}
+                </div>
+                <div style={{ fontSize: 10, color: T.text3 }}>{t.subjectName}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: T.text3 }}>
+            {selected.length + " selected"}
+          </span>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <button onClick={() => { setShowPicker(false); setSelected([]); setSearch(""); }}
+              style={btnGhost}>Cancel</button>
+            <button onClick={handleConfirm} disabled={selected.length === 0 || saving}
+              style={{
+                ...btnPrimary(T.accent),
+                opacity: selected.length === 0 ? 0.5 : 1,
+              }}>
+              {saving ? "Saving…" : "Log " + (selected.length > 0 ? selected.length + " topics" : "Study")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Default: prompt card
+  return (
+    <div style={{ ...cardStyle, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 3 }}>
+            📅 Did you study today?
+          </div>
+          <div style={{ fontSize: 11, color: T.text3 }}>
+            Log your topics to keep your streak alive
+          </div>
+        </div>
+        <button onClick={() => setShowPicker(true)}
+          style={{ ...btnPrimary(T.green), fontSize: 12, padding: "8px 16px",
+            flexShrink: 0, marginLeft: 12 }}>
+          ✓ Log Study
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // STREAK PANEL
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -227,32 +579,8 @@ export function StreakPanel({ streak, logs, syllabus }) {
         ))}
       </div>
 
-      {/* Weekly activity bar */}
-      <div style={{ ...cardStyle, marginBottom: 16 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 12 }}>This Week</div>
-        <div style={{ display: "flex", gap: 6, alignItems: "flex-end", height: 48 }}>
-          {week.reverse().map(date => {
-            const hasLog = logsThisWeek.some(l => l.date === date);
-            const isToday = date === todayStr();
-            const dayLabel = new Date(date).toLocaleDateString("en-IN", { weekday: "short" });
-            return (
-              <div key={date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                <div style={{
-                  width: "100%", height: hasLog ? 36 : 8,
-                  background: hasLog ? T.accent : T.border,
-                  borderRadius: 4, transition: "height 0.3s ease",
-                  border: isToday ? `2px solid ${T.accent2}` : "none",
-                }} />
-                <span style={{ fontSize: 9, color: isToday ? T.accent2 : T.text3 }}>{dayLabel}</span>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ fontSize: 11, color: T.text3, marginTop: 10 }}>
-          {daysThisWeek} day{daysThisWeek !== 1 ? "s" : ""} studied &nbsp;·&nbsp;
-          {uniqueTopicsThisWeek} unique topic{uniqueTopicsThisWeek !== 1 ? "s" : ""} covered
-        </div>
-      </div>
+      {/* ── Study Heatmap — 26 weeks ── */}
+      <StudyHeatmap logs={logs} />
 
       {/* Earned badges */}
       {earnedBadges.length > 0 && (
@@ -494,6 +822,7 @@ export function RevisionCounter({ syllabus, papers, onUpdateRevision }) {
   const [search,    setSearch]    = useState("");
   const [sortBy,    setSortBy]    = useState("least"); // least | most | alpha | subject
   const [filterSubj,setFilterSubj]= useState("all");
+  const [focusZone, setFocusZone] = useState(false);
 
   // Count how many papers each topic appeared in (from OMR tags)
   const topicPaperCount = {};
@@ -515,8 +844,24 @@ export function RevisionCounter({ syllabus, papers, onUpdateRevision }) {
     }))
   );
 
-  // Filter
+  // Topic accuracy from papers (for Focus Zone)
+  const topicAccuracy = {};
+  for (const paper of papers) {
+    for (const [tid, stats] of Object.entries(paper.computed?.byTopic || {})) {
+      if (!topicAccuracy[tid]) topicAccuracy[tid] = { correct: 0, total: 0 };
+      topicAccuracy[tid].correct += stats.correct || 0;
+      topicAccuracy[tid].total   += stats.total   || 0;
+    }
+  }
+
+  // Filter — apply focusZone, subject, and search (all AND)
   const filtered = allTopics.filter(t => {
+    if (focusZone) {
+      const ts = topicAccuracy[t.id];
+      if (!ts || ts.total === 0) return false; // must have appeared in a paper
+      const acc = ts.correct / ts.total * 100;
+      if (acc < 40 || acc > 75) return false;  // 40-75% = focus zone
+    }
     if (filterSubj !== "all" && t.subjectId !== filterSubj) return false;
     if (search && !matchSearch(t.name + " " + t.subjectName, search)) return false;
     return true;
@@ -568,7 +913,27 @@ export function RevisionCounter({ syllabus, papers, onUpdateRevision }) {
           <option value="alpha">Alphabetical</option>
           <option value="subject">By Subject</option>
         </select>
+        {/* Focus Zone toggle */}
+        <button onClick={() => setFocusZone(z => !z)}
+          style={{
+            ...btnGhost, fontSize: 12, padding: "5px 12px",
+            background: focusZone ? T.orange + "33" : "transparent",
+            color:       focusZone ? T.orange       : T.text2,
+            borderColor: focusZone ? T.orange       : T.border2,
+            fontWeight:  focusZone ? 700 : 400,
+          }}>
+          🎯 Focus Zone
+        </button>
       </div>
+      {/* Focus Zone explanation */}
+      {focusZone && (
+        <div style={{ fontSize: 11, color: T.orange, marginBottom: 10,
+          padding: "6px 12px", background: T.orange + "15",
+          borderRadius: 6, lineHeight: 1.6 }}>
+          Showing topics with 40-75% accuracy (attempted but not yet mastered).
+          These give the highest score improvement per hour of study.
+        </div>
+      )}
 
       {/* Legend */}
       <div style={{ display: "flex", gap: 16, marginBottom: 12, flexWrap: "wrap" }}>
@@ -583,7 +948,11 @@ export function RevisionCounter({ syllabus, papers, onUpdateRevision }) {
       {/* Topic list */}
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {sorted.length === 0 && (
-          <div style={{ color: T.text3, textAlign: "center", padding: 30 }}>No topics match your filters.</div>
+          <div style={{ color: T.text3, textAlign: "center", padding: 30 }}>
+            {focusZone
+              ? "No topics in the Focus Zone. Keep attempting papers to build topic data."
+              : "No topics match your filters."}
+          </div>
         )}
         {sorted.map(t => {
           const col = revColor(t.revisionCount || 0);
@@ -608,10 +977,17 @@ export function RevisionCounter({ syllabus, papers, onUpdateRevision }) {
                   )}
                   {t.name}
                 </div>
-                <div style={{ fontSize: 10, color: T.text3, display: "flex", gap: 10, marginTop:2 }}>
+                <div style={{ fontSize: 10, color: T.text3, display: "flex", gap: 10, marginTop:2, flexWrap:"wrap" }}>
                   <span>{t.subjectName}</span>
                   {t.lastRevisedDate && <span>Last: {fmtDate(t.lastRevisedDate)}</span>}
-                  {t.paperCount > 0 && <span style={{ color: T.accent }}>Appeared in {t.paperCount} paper{t.paperCount !== 1 ? "s" : ""}</span>}
+                  {t.paperCount > 0 && <span style={{ color: T.accent }}>
+                    Appeared in {t.paperCount} paper{t.paperCount !== 1 ? "s" : ""}
+                  </span>}
+                  {focusZone && topicAccuracy[t.id] && (
+                    <span style={{ color: T.orange, fontWeight: 700 }}>
+                      {Math.round(topicAccuracy[t.id].correct / topicAccuracy[t.id].total * 100) + "% acc"}
+                    </span>
+                  )}
                 </div>
               </div>
 
