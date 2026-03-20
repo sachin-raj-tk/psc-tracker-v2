@@ -39,6 +39,7 @@ import {
   StudyTimer,
   StudyHeatmap,
   QuickLogPanel,
+  SkipReasonModal,
 } from "./AppStudy";
 
 import {
@@ -145,6 +146,75 @@ function ExamTimers() {
     setTimers(updated);
   };
 
+  // Open Picture-in-Picture for an exam countdown
+  const handleExamPiP = async (timer) => {
+    if (!("documentPictureInPicture" in window)) return;
+    setActivePipId(timer.id);
+    try {
+      const pip = await window.documentPictureInPicture.requestWindow({
+        width: 260, height: 190,
+      });
+      pip.document.documentElement.style.cssText =
+        "margin:0;padding:0;background:#07090f;color:#e6edf3;height:100%;";
+      pip.document.body.style.cssText =
+        "margin:0;padding:0;display:flex;flex-direction:column;align-items:center;" +
+        "justify-content:center;height:100%;background:#07090f;padding:16px;box-sizing:border-box;";
+
+      // Self-contained countdown logic (no React) inside PiP
+      const calcCD = (dtStr) => {
+        try {
+          const target = new Date(dtStr).getTime();
+          const now    = Date.now();
+          const diff   = target - now;
+          if (isNaN(diff)) return { status: "error" };
+          if (diff <= 0)   return { status: "past" };
+          const total = Math.floor(diff / 1000);
+          return {
+            status:  "future",
+            days:    Math.floor(total / 86400),
+            hours:   Math.floor((total % 86400) / 3600),
+            minutes: Math.floor((total % 3600) / 60),
+          };
+        } catch { return { status: "error" }; }
+      };
+
+      const render = () => {
+        const cd = calcCD(timer.datetime);
+        const col = cd.status === "future"
+          ? (cd.days < 7 ? "#f85149" : cd.days < 30 ? "#d29922" : "#3fb950")
+          : "#8b949e";
+        const body = cd.status === "future"
+          ? "<div style='font-size:11px;color:#8b949e;margin-bottom:4px;'>" +
+              new Date(timer.datetime).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}) +
+            "</div>" +
+            "<div style='display:flex;gap:16px;margin:8px 0;'>" +
+              [["days",cd.days],["hrs",cd.hours],["min",cd.minutes]].map(([u,v]) =>
+                "<div style='text-align:center'>" +
+                "<div style='font-size:36px;font-weight:900;color:" + col + ";font-family:monospace;line-height:1'>" + v + "</div>" +
+                "<div style='font-size:10px;color:#8b949e'>" + u + "</div></div>"
+              ).join("") +
+            "</div>"
+          : "<div style='font-size:16px;color:#8b949e;margin:12px 0;'>" +
+              (cd.status === "past" ? "Exam completed" : "Invalid date") +
+            "</div>";
+
+        pip.document.body.innerHTML =
+          "<div style='font-size:13px;font-weight:700;color:#e6edf3;margin-bottom:4px;text-align:center'>" +
+            timer.name +
+          "</div>" + body;
+      };
+
+      render();
+      const id = pip.setInterval(render, 60000);
+      pip.addEventListener("pagehide", () => {
+        pip.clearInterval(id);
+        setActivePipId(null);
+      });
+    } catch {
+      setActivePipId(null);
+    }
+  };
+
   // Status colours and labels
   const getDisplay = (cd) => {
     if (cd.status === "today")  return { color: T.yellow, label: "Exam is Today! 🎯", sub: "" };
@@ -225,8 +295,18 @@ function ExamTimers() {
                 </div>
               </div>
 
-              {/* Edit / Delete */}
+              {/* Edit / Delete / PiP */}
               <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: 8 }}>
+                {"documentPictureInPicture" in window && cd.status === "future" && (
+                  <button
+                    onClick={() => handleExamPiP(timer)}
+                    title="Float countdown on top of other apps"
+                    style={{ ...btnGhost, padding: "4px 8px", fontSize: 11,
+                      color: activePipId === timer.id ? T.accent2 : T.text2,
+                      borderColor: activePipId === timer.id ? T.accent : T.border2 }}>
+                    ⧉
+                  </button>
+                )}
                 <button onClick={() => openEdit(timer)}
                   style={{ ...btnGhost, padding: "4px 8px", fontSize: 11 }}>✎</button>
                 <button onClick={() => handleDelete(timer.id)}
@@ -1909,6 +1989,7 @@ export default function App() {
   const [loading,     setLoading]     = useState(true);
   const [cutoffs,     setCutoffs]     = useState({});
   const [modal,       setModal]       = useState(null);
+  const [skipReason,  setSkipReason]  = useState(null);
   const { toasts, showToast }         = useToast();
 
   const activeSyl    = syllabi.find(s => s.id === activeSylId) || syllabi[0] || null;
@@ -1927,7 +2008,50 @@ export default function App() {
       setActiveSylId(syl[0]?.id || null);
       setLoading(false);
       setTimeout(() => { if (window.__hideSplash) window.__hideSplash(); }, 300);
+
+      // ── Check URL params for skip reason (opened via notification "No" action) ──
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("skipReason") === "1") {
+          const ts = parseInt(params.get("ts") || "0") || Date.now();
+          setSkipReason({ timestamp: ts });
+          // Clean URL so refreshing doesn't re-trigger
+          window.history.replaceState({}, "", window.location.pathname);
+          setPage("study");
+        }
+      } catch {}
+
+      // ── Post alarms to SW ──────────────────────────────────────────────────
+      try {
+        const alarms     = JSON.parse(localStorage.getItem("psc-reminders") || "[]");
+        const firedToday = JSON.parse(localStorage.getItem("psc-notif-fired") || "{}");
+        navigator.serviceWorker?.controller?.postMessage({
+          type: "SET_ALARMS", alarms, firedToday, userName: "Sachin",
+        });
+      } catch {}
     })();
+  }, []);
+
+  // Listen for SW messages (skip reason trigger from notification)
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === "SHOW_SKIP_REASON") {
+        setSkipReason({ timestamp: e.data.timestamp || Date.now() });
+        setPage("study");
+      }
+    };
+    navigator.serviceWorker?.addEventListener("message", handler);
+    return () => navigator.serviceWorker?.removeEventListener("message", handler);
+  }, []);
+
+  // Also listen for custom event from StudyReminders component
+  useEffect(() => {
+    const handler = (e) => {
+      setSkipReason({ timestamp: e.detail?.timestamp || Date.now() });
+      setPage("study");
+    };
+    window.addEventListener("psc-skip-reason", handler);
+    return () => window.removeEventListener("psc-skip-reason", handler);
   }, []);
 
   // ── Persistence ───────────────────────────────────────────────────────────
@@ -2247,6 +2371,14 @@ export default function App() {
         ::-webkit-scrollbar-track { background: #0d1117; }
         ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 3px; }
       `}</style>
+
+      {/* Skip Reason Modal — shown when user taps No on notification */}
+      {skipReason && (
+        <SkipReasonModal
+          timestamp={skipReason.timestamp}
+          onClose={() => setSkipReason(null)}
+        />
+      )}
     </div>
   );
 }

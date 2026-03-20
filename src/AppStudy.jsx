@@ -176,9 +176,92 @@ export function useStudyTracker(syllabus, onUpdateSyllabus) {
   return { logs, streak, loading, saveLog, deleteLog, updateRevision };
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SKIP REASON MODAL — shown when user taps No on a study reminder notification
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * SkipReasonModal — prompts user to enter why they aren't studying.
+ * Saves reason to localStorage with timestamp.
+ * Shown when app opens via notification "No" action or psc-skip-reason event.
+ */
+export function SkipReasonModal({ timestamp, onClose }) {
+  const [reason, setReason] = useState("");
+
+  const handleSave = () => {
+    const reasons = loadSkipReasons();
+    const ts = timestamp ? new Date(timestamp).toISOString()
+                         : new Date().toISOString();
+    reasons.push({
+      id:        Math.random().toString(36).slice(2, 10),
+      timestamp: ts,
+      reason:    reason.trim() || "No reason given",
+    });
+    saveSkipReasons(reasons);
+    onClose();
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 600,
+      background: "rgba(0,0,0,0.65)",
+      display: "flex", alignItems: "flex-end", justifyContent: "center",
+      padding: "0 0 24px",
+    }} onClick={onClose}>
+      <div style={{
+        background: "#0d1117", borderRadius: "16px 16px 12px 12px",
+        padding: 24, maxWidth: 420, width: "100%",
+        border: "1px solid " + T.border,
+        boxShadow: "0 -8px 32px rgba(0,0,0,0.5)",
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 6 }}>
+          Why aren't you studying?
+        </div>
+        <div style={{ fontSize: 12, color: T.text3, marginBottom: 16, lineHeight: 1.6 }}>
+          Recording this helps you understand your study patterns.
+          You can skip this if you prefer.
+        </div>
+        <textarea
+          value={reason}
+          onChange={e => setReason(e.target.value)}
+          placeholder="e.g. Too tired, busy with work, travelling..."
+          rows={3}
+          style={{
+            width: "100%", boxSizing: "border-box",
+            background: "#0a0e1a", color: T.text,
+            border: "1px solid " + T.border, borderRadius: 8,
+            padding: "10px 12px", fontSize: 13, resize: "none",
+            marginBottom: 16, fontFamily: "inherit",
+          }}
+          autoFocus
+        />
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={onClose}
+            style={{ ...btnGhost, fontSize: 13 }}>Skip</button>
+          <button onClick={handleSave}
+            style={{ ...btnPrimary(T.accent), fontSize: 13 }}>
+            Save Reason
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STUDY HEATMAP — 26-week contribution calendar
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Skip Reasons storage key ────────────────────────────────────────────────
+const SKIP_REASONS_KEY = "psc-skip-reasons";
+
+function loadSkipReasons() {
+  try { return JSON.parse(localStorage.getItem(SKIP_REASONS_KEY) || "[]"); } catch { return []; }
+}
+function saveSkipReasons(arr) {
+  try { localStorage.setItem(SKIP_REASONS_KEY, JSON.stringify(arr)); } catch {}
+}
 
 function heatColor(count) {
   if (count === 0) return "#1a1f2e";
@@ -652,9 +735,11 @@ export function StreakPanel({ streak, logs, syllabus }) {
  * Topics are selected from the syllabus topic list (searchable).
  */
 export function StudyLogPanel({ syllabus, logs, onSave, onDelete }) {
-  const [showAdd,     setShowAdd]     = useState(false);
-  const [searchDate,  setSearchDate]  = useState("");
-  const [searchTopic, setSearchTopic] = useState("");
+  const [showAdd,      setShowAdd]      = useState(false);
+  const [searchDate,   setSearchDate]   = useState("");
+  const [searchTopic,  setSearchTopic]  = useState("");
+  const [skipReasons,  setSkipReasons]  = useState(loadSkipReasons);
+  const [showSkipTab,  setShowSkipTab]  = useState(false);
 
   // Flatten all topics for display
   const allTopics = syllabus.subjects.flatMap(s =>
@@ -673,8 +758,79 @@ export function StudyLogPanel({ syllabus, logs, onSave, onDelete }) {
     return true;
   });
 
+  const deleteSkipReason = (id) => {
+    const updated = skipReasons.filter(r => r.id !== id);
+    setSkipReasons(updated);
+    saveSkipReasons(updated);
+  };
+
   return (
     <div>
+      {/* Tab toggle: Study Log | Skipped Days */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {[
+          { key: false, label: "📚 Study Log" },
+          { key: true,  label: "🚫 Skipped Days" + (skipReasons.length > 0 ? " (" + skipReasons.length + ")" : "") },
+        ].map(tab => (
+          <button key={String(tab.key)} onClick={() => setShowSkipTab(tab.key)}
+            style={{
+              ...btnGhost, fontSize: 12, padding: "5px 14px",
+              background: showSkipTab === tab.key ? T.accent + "33" : "transparent",
+              color:      showSkipTab === tab.key ? T.accent2 : T.text2,
+              borderColor:showSkipTab === tab.key ? T.accent   : T.border2,
+            }}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── SKIPPED DAYS TAB ── */}
+      {showSkipTab && (
+        <div>
+          {skipReasons.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 40, color: T.text3, fontSize: 12 }}>
+              No skipped days recorded yet.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[...skipReasons].sort((a,b) => b.timestamp.localeCompare(a.timestamp)).map(r => (
+                <div key={r.id} style={{ ...cardStyle, padding: "10px 14px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between",
+                    alignItems: "center", marginBottom: r.reason ? 6 : 0 }}>
+                    <div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: T.red }}>
+                        🚫 Skipped
+                      </span>
+                      <span style={{ fontSize: 11, color: T.text3, marginLeft: 8 }}>
+                        {new Date(r.timestamp).toLocaleDateString("en-IN", {
+                          day: "numeric", month: "short", year: "numeric"
+                        }) + " · " + new Date(r.timestamp).toLocaleTimeString("en-IN", {
+                          hour: "2-digit", minute: "2-digit"
+                        })}
+                      </span>
+                    </div>
+                    <button onClick={() => deleteSkipReason(r.id)}
+                      style={{ ...btnGhost, fontSize: 11, padding: "3px 8px",
+                        color: T.red, borderColor: T.red + "44", flexShrink: 0 }}>
+                      Del
+                    </button>
+                  </div>
+                  {r.reason && (
+                    <div style={{ fontSize: 12, color: T.text2, fontStyle: "italic",
+                      paddingLeft: 4, borderLeft: "2px solid " + T.red + "44" }}>
+                      {r.reason}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── STUDY LOG TAB ── */}
+      {!showSkipTab && (
+      <div>
       {/* Controls */}
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <button onClick={() => setShowAdd(true)} style={btnPrimary(T.accent)}>+ Log Today's Study</button>
@@ -743,6 +899,8 @@ export function StudyLogPanel({ syllabus, logs, onSave, onDelete }) {
           onClose={() => setShowAdd(false)}
         />
       )}
+      </div>
+      )} {/* end !showSkipTab */}
     </div>
   );
 }
@@ -1070,6 +1228,12 @@ export function RevisionCounter({ syllabus, papers, onUpdateRevision }) {
  * No audio file needed — generated in pure JS.
  * C5 → E5 → G5 with smooth fade-out on each note.
  */
+// Module-level object written on every timer tick so PiP window can read it
+// without needing React state (PiP is a separate document context)
+window.__pipTimerState = window.__pipTimerState || {
+  endTime: null, totalSecs: null, running: false, done: false
+};
+
 function playChime() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1110,6 +1274,8 @@ export function StudyTimer() {
   const [done,      setDone]      = useState(false);
   const intervalRef = useRef(null);
   const endTimeRef  = useRef(null); // absolute end timestamp — immune to background/sleep drift
+  const pipRef      = useRef(null); // reference to PiP window
+  const pipInterval = useRef(null); // interval inside PiP window
 
   // Clear interval on unmount
   useEffect(() => {
@@ -1122,11 +1288,17 @@ export function StudyTimer() {
     intervalRef.current = setInterval(() => {
       const left = Math.max(0, Math.round((endTimestamp - Date.now()) / 1000));
       setRemaining(left);
+      // Update PiP state so floating window stays in sync
+      window.__pipTimerState.endTime   = endTimestamp;
+      window.__pipTimerState.running   = true;
+      window.__pipTimerState.done      = left <= 0;
       if (left <= 0) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
         setRunning(false);
         setDone(true);
+        window.__pipTimerState.running = false;
+        window.__pipTimerState.done    = true;
         playChime();
       }
     }, 500); // tick twice/sec for accuracy
@@ -1168,6 +1340,75 @@ export function StudyTimer() {
     setTotalSecs(null);
     setRemaining(0);
     endTimeRef.current = null;
+  };
+
+  // Open Picture-in-Picture floating timer window
+  const handlePiP = async () => {
+    if (!("documentPictureInPicture" in window)) return;
+    // Close existing PiP if open
+    if (pipRef.current && !pipRef.current.closed) {
+      pipRef.current.close();
+    }
+    try {
+      const pip = await window.documentPictureInPicture.requestWindow({
+        width: 240, height: 210,
+      });
+      pipRef.current = pip;
+
+      // Inject HTML into PiP document
+      pip.document.documentElement.style.cssText =
+        "margin:0;padding:0;background:#07090f;color:#e6edf3;font-family:monospace;height:100%;";
+      pip.document.body.style.cssText =
+        "margin:0;padding:0;display:flex;flex-direction:column;align-items:center;" +
+        "justify-content:center;height:100%;background:#07090f;";
+      pip.document.body.innerHTML =
+        "<div id='pip-label' style='font-size:11px;color:#8b949e;margin-bottom:8px;letter-spacing:0.08em;'>📚 PSC STUDY TIMER</div>" +
+        "<div id='pip-time' style='font-size:48px;font-weight:900;color:#58a6ff;line-height:1;margin-bottom:8px;'>--:--:--</div>" +
+        "<div id='pip-status' style='font-size:11px;color:#8b949e;'></div>";
+
+      // Interval inside PiP to update display
+      const pipTick = pip.setInterval(() => {
+        const state = window.__pipTimerState;
+        const timeEl   = pip.document.getElementById("pip-time");
+        const statusEl = pip.document.getElementById("pip-status");
+        if (!timeEl || !statusEl) return;
+        if (state.done) {
+          timeEl.textContent   = "🎉 Done!";
+          timeEl.style.color   = "#3fb950";
+          timeEl.style.fontSize= "32px";
+          statusEl.textContent = "Session complete!";
+          return;
+        }
+        if (!state.endTime || !state.running) {
+          statusEl.textContent = "Paused";
+          return;
+        }
+        const left = Math.max(0, Math.round((state.endTime - Date.now()) / 1000));
+        const h    = Math.floor(left / 3600);
+        const m    = Math.floor((left % 3600) / 60);
+        const s    = left % 60;
+        timeEl.textContent   = String(h).padStart(2,"0") + ":" +
+                               String(m).padStart(2,"0") + ":" +
+                               String(s).padStart(2,"0");
+        statusEl.textContent = "Focus. You are doing great.";
+        // Colour shifts as time runs low
+        const prog = state.totalSecs > 0 ? (state.totalSecs - left) / state.totalSecs : 0;
+        timeEl.style.color   =
+          prog < 0.5 ? "#3fb950" :
+          prog < 0.75? "#d29922" :
+          prog < 0.9 ? "#f85149" : "#f85149";
+      }, 500);
+      pipInterval.current = pipTick;
+
+      // Cleanup when PiP is closed by user
+      pip.addEventListener("pagehide", () => {
+        pip.clearInterval(pipTick);
+        pipRef.current      = null;
+        pipInterval.current = null;
+      });
+    } catch (e) {
+      // PiP denied or not supported — fail silently
+    }
   };
 
   // Format seconds as HH:MM:SS
@@ -1283,14 +1524,14 @@ export function StudyTimer() {
           )}
 
           {/* Controls */}
-          <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
             {!done && running && (
               <button onClick={handlePause}
                 style={{ ...btnGhost, fontSize: 14, padding: "10px 24px" }}>
                 ⏸ Pause
               </button>
             )}
-            {!done && !running && (
+            {!done && !running && totalSecs !== null && (
               <button onClick={handleResume}
                 style={{ ...btnPrimary(T.accent), fontSize: 14, padding: "10px 24px" }}>
                 ▶ Resume
@@ -1301,6 +1542,13 @@ export function StudyTimer() {
                 color: T.red, borderColor: T.red + "44" }}>
               ✕ Reset
             </button>
+            {"documentPictureInPicture" in window && !done && (
+              <button onClick={handlePiP}
+                title="Float timer on top of other apps"
+                style={{ ...btnGhost, fontSize: 14, padding: "10px 16px" }}>
+                ⧉ Float
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -33,7 +33,7 @@ import {
  * Instructions in README.md under "Google Drive Sync Setup".
  * Leave as empty string to hide the Google Sign-in option.
  */
-const GOOGLE_CLIENT_ID = "523616350993-easu9f28e8g4prf0dtfvp95bk5obcbkc.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "";
 
 /** Google Drive AppData folder — only this app can read/write it */
 const DRIVE_FILE_NAME  = "psc-tracker-backup.json";
@@ -303,6 +303,284 @@ export function shareOnWhatsApp(paper, syllabus, streak) {
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STUDY REMINDERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const REMINDERS_KEY   = "psc-reminders";
+const FIRED_TODAY_KEY = "psc-notif-fired";
+
+function loadReminders() {
+  try { return JSON.parse(localStorage.getItem(REMINDERS_KEY) || "[]"); } catch { return []; }
+}
+function saveReminders(arr) {
+  try { localStorage.setItem(REMINDERS_KEY, JSON.stringify(arr)); } catch {}
+}
+function loadFiredToday() {
+  try { return JSON.parse(localStorage.getItem(FIRED_TODAY_KEY) || "{}"); } catch { return {}; }
+}
+function saveFiredToday(obj) {
+  try { localStorage.setItem(FIRED_TODAY_KEY, JSON.stringify(obj)); } catch {}
+}
+
+/** Post alarm data to service worker so it can check/fire notifications */
+function postAlarmsToSW(alarms, firedToday) {
+  try {
+    const userName = "Sachin"; // TODO: read from user settings if stored
+    navigator.serviceWorker?.controller?.postMessage({
+      type: "SET_ALARMS", alarms, firedToday, userName,
+    });
+  } catch {}
+}
+
+/**
+ * StudyReminders — alarm-style notification scheduler.
+ * Multiple reminders per day, each toggleable individually.
+ * Stored in localStorage, posted to service worker on every change.
+ */
+export function StudyReminders() {
+  const [reminders,   setReminders]   = useState(loadReminders);
+  const [firedToday,  setFiredToday]  = useState(loadFiredToday);
+  const [showAdd,     setShowAdd]     = useState(false);
+  const [editingId,   setEditingId]   = useState(null);
+  const [formTime,    setFormTime]    = useState("08:00");
+  const [formLabel,   setFormLabel]   = useState("");
+  const [permission,  setPermission]  = useState(
+    typeof Notification !== "undefined" ? Notification.permission : "default"
+  );
+  const [permError,   setPermError]   = useState("");
+
+  // Listen for firedToday updates from SW
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === "FIRED_UPDATE") {
+        setFiredToday(e.data.firedToday);
+        saveFiredToday(e.data.firedToday);
+      }
+      if (e.data?.type === "SHOW_SKIP_REASON") {
+        // Dispatch custom event that App root listens to
+        window.dispatchEvent(new CustomEvent("psc-skip-reason",
+          { detail: { timestamp: e.data.timestamp } }));
+      }
+    };
+    navigator.serviceWorker?.addEventListener("message", handler);
+    return () => navigator.serviceWorker?.removeEventListener("message", handler);
+  }, []);
+
+  // Post alarms to SW whenever they change
+  useEffect(() => {
+    postAlarmsToSW(reminders, firedToday);
+  }, [reminders, firedToday]);
+
+  const requestPermission = async () => {
+    if (typeof Notification === "undefined") {
+      setPermError("Notifications not supported on this browser.");
+      return false;
+    }
+    const result = await Notification.requestPermission();
+    setPermission(result);
+    if (result === "denied") {
+      setPermError("Notifications are blocked. Enable them in your browser settings.");
+      return false;
+    }
+    return result === "granted";
+  };
+
+  const openAdd = () => {
+    setEditingId(null);
+    setFormTime("08:00");
+    setFormLabel("");
+    setShowAdd(true);
+  };
+
+  const openEdit = (r) => {
+    setEditingId(r.id);
+    setFormTime(r.time);
+    setFormLabel(r.label || "");
+    setShowAdd(true);
+  };
+
+  const handleSave = async () => {
+    if (!formTime) return;
+    // Request permission if not granted
+    if (permission !== "granted") {
+      const ok = await requestPermission();
+      if (!ok) return;
+    }
+    const id = editingId || Math.random().toString(36).slice(2, 10);
+    const updated = editingId
+      ? reminders.map(r => r.id === editingId
+          ? { ...r, time: formTime, label: formLabel }
+          : r)
+      : [...reminders, { id, time: formTime, label: formLabel, enabled: true }];
+    // Sort by time
+    updated.sort((a, b) => a.time.localeCompare(b.time));
+    setReminders(updated);
+    saveReminders(updated);
+    setShowAdd(false);
+  };
+
+  const toggleReminder = (id) => {
+    const updated = reminders.map(r => r.id === id ? { ...r, enabled: !r.enabled } : r);
+    setReminders(updated);
+    saveReminders(updated);
+  };
+
+  const deleteReminder = (id) => {
+    const updated = reminders.filter(r => r.id !== id);
+    setReminders(updated);
+    saveReminders(updated);
+  };
+
+  const fmt12 = (hhmm) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12  = h % 12 || 12;
+    return h12 + ":" + String(m).padStart(2,"0") + " " + ampm;
+  };
+
+  return (
+    <div style={{ ...cardStyle, marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between",
+        alignItems: "center", marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>
+          🔔 Study Reminders
+        </div>
+        <button onClick={openAdd}
+          style={{ ...btnGhost, fontSize: 12, padding: "4px 12px" }}>
+          + Add
+        </button>
+      </div>
+
+      {/* Permission warning */}
+      {permission === "denied" && (
+        <div style={{ fontSize: 11, color: T.orange, marginBottom: 10,
+          padding: "8px 12px", background: T.orange + "15", borderRadius: 6 }}>
+          ⚠ Notifications are blocked. Go to browser Settings → Site Settings →
+          Notifications → allow PSC Tracker.
+        </div>
+      )}
+      {permError && (
+        <div style={{ fontSize: 11, color: T.red, marginBottom: 10 }}>
+          {permError}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {reminders.length === 0 && (
+        <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: "16px 0" }}>
+          No reminders set. Tap "+ Add" to add your first daily reminder.
+        </div>
+      )}
+
+      {/* Reminder list */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {reminders.map(r => (
+          <div key={r.id} style={{
+            display: "flex", alignItems: "center", gap: 12,
+            padding: "10px 14px", borderRadius: 8,
+            background: T.surface,
+            border: "1px solid " + (r.enabled ? T.accent + "44" : T.border),
+            opacity: r.enabled ? 1 : 0.6,
+          }}>
+            {/* Toggle */}
+            <button onClick={() => toggleReminder(r.id)}
+              style={{
+                width: 44, height: 24, borderRadius: 12, border: "none",
+                cursor: "pointer", flexShrink: 0, position: "relative",
+                background: r.enabled ? T.green : T.border2,
+                transition: "background 0.2s",
+              }}>
+              <div style={{
+                position: "absolute", top: 3,
+                left: r.enabled ? 23 : 3,
+                width: 18, height: 18, borderRadius: "50%",
+                background: "#fff", transition: "left 0.2s",
+              }} />
+            </button>
+
+            {/* Time + label */}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 700,
+                color: r.enabled ? T.text : T.text3,
+                fontFamily: "monospace" }}>
+                {fmt12(r.time)}
+              </div>
+              {r.label && (
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+                  {r.label}
+                </div>
+              )}
+            </div>
+
+            {/* Edit + Delete */}
+            <button onClick={() => openEdit(r)}
+              style={{ ...btnGhost, padding: "4px 8px", fontSize: 11 }}>✎</button>
+            <button onClick={() => deleteReminder(r.id)}
+              style={{ ...btnGhost, padding: "4px 8px", fontSize: 11,
+                color: T.red, borderColor: T.red + "44" }}>✕</button>
+          </div>
+        ))}
+      </div>
+
+      {/* Add/Edit modal */}
+      {showAdd && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 500,
+          background: "rgba(0,0,0,0.6)",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+        }} onClick={() => setShowAdd(false)}>
+          <div style={{
+            background: "#0d1117", borderRadius: 12, padding: 24,
+            maxWidth: 320, width: "100%",
+            border: "1px solid " + T.border,
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16 }}>
+              {editingId ? "Edit Reminder" : "Add Reminder"}
+            </div>
+
+            <label style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 14 }}>
+              <span style={{ fontSize: 10, color: T.text3,
+                textTransform: "uppercase", letterSpacing: "0.08em" }}>Time *</span>
+              <input type="time" value={formTime}
+                onChange={e => setFormTime(e.target.value)}
+                style={{ fontSize: 22, fontWeight: 700, textAlign: "center",
+                  background: "#0d1117", color: T.text,
+                  border: "1px solid " + T.border, borderRadius: 8, padding: "10px 12px",
+                  fontFamily: "monospace", width: "100%", boxSizing: "border-box" }} />
+            </label>
+
+            <label style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 20 }}>
+              <span style={{ fontSize: 10, color: T.text3,
+                textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Label (optional)
+              </span>
+              <input value={formLabel}
+                onChange={e => setFormLabel(e.target.value)}
+                placeholder="e.g. Morning, Lunch break..."
+                style={{ fontSize: 13, background: "#0d1117", color: T.text,
+                  border: "1px solid " + T.border, borderRadius: 8, padding: "8px 12px",
+                  width: "100%", boxSizing: "border-box" }} />
+            </label>
+
+            {permError && (
+              <div style={{ fontSize: 11, color: T.red, marginBottom: 12 }}>{permError}</div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowAdd(false)} style={btnGhost}>Cancel</button>
+              <button onClick={handleSave} style={btnPrimary(T.accent)}>
+                {editingId ? "Update" : "Add Reminder"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SYNC PANEL — combined UI
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -362,6 +640,9 @@ export function SyncPanel({ getAllData, restoreAllData, onRestored }) {
 
   return (
     <div>
+      {/* Study Reminders */}
+      <StudyReminders />
+
       {/* Reference Documents */}
       <Section title="📁 Reference Documents" accent={T.purple} style={{ marginBottom: 16 }}>
         <p style={{ fontSize: 12, color: T.text2, marginBottom: 14, lineHeight: 1.7 }}>
