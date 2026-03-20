@@ -96,10 +96,11 @@ function ExamTimers() {
   const [timers,    setTimers]    = useState(() => loadExamTimers());
   const [tick,      setTick]      = useState(0);
   const [showModal, setShowModal] = useState(false);
-  const [editing,   setEditing]   = useState(null); // null or timer object
-  const [formName,  setFormName]  = useState("");
-  const [formDT,    setFormDT]    = useState("");
-  const [formErr,   setFormErr]   = useState("");
+  const [editing,     setEditing]     = useState(null);
+  const [formName,    setFormName]    = useState("");
+  const [formDT,      setFormDT]      = useState("");
+  const [formErr,     setFormErr]     = useState("");
+  const [activePipId, setActivePipId] = useState(null);
 
   // Tick every minute to refresh countdowns
   useEffect(() => {
