@@ -148,7 +148,16 @@ function ExamTimers() {
 
   // Open Picture-in-Picture for an exam countdown
   const handleExamPiP = async (timer) => {
-    if (!("documentPictureInPicture" in window)) return;
+    if (!("documentPictureInPicture" in window)) {
+      alert(
+        "Floating countdown is not supported on this browser.\n\n" +
+        "To use it:\n" +
+        "• Make sure Chrome is updated to version 116 or above\n" +
+        "• Install the app to your home screen (Add to Home Screen)\n" +
+        "• Reopen the app from the home screen icon"
+      );
+      return;
+    }
     setActivePipId(timer.id);
     try {
       const pip = await window.documentPictureInPicture.requestWindow({
@@ -297,7 +306,7 @@ function ExamTimers() {
 
               {/* Edit / Delete / PiP */}
               <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: 8 }}>
-                {"documentPictureInPicture" in window && cd.status === "future" && (
+                {cd.status === "future" && (
                   <button
                     onClick={() => handleExamPiP(timer)}
                     title="Float countdown on top of other apps"

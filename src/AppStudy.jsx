@@ -1344,7 +1344,16 @@ export function StudyTimer() {
 
   // Open Picture-in-Picture floating timer window
   const handlePiP = async () => {
-    if (!("documentPictureInPicture" in window)) return;
+    if (!("documentPictureInPicture" in window)) {
+      alert(
+        "Floating timer is not supported on this browser.\n\n" +
+        "To use it:\n" +
+        "• Make sure Chrome is updated to version 116 or above\n" +
+        "• Install the app to your home screen (Add to Home Screen)\n" +
+        "• Reopen the app from the home screen icon"
+      );
+      return;
+    }
     // Close existing PiP if open
     if (pipRef.current && !pipRef.current.closed) {
       pipRef.current.close();
@@ -1542,7 +1551,7 @@ export function StudyTimer() {
                 color: T.red, borderColor: T.red + "44" }}>
               ✕ Reset
             </button>
-            {"documentPictureInPicture" in window && !done && (
+            {!done && (
               <button onClick={handlePiP}
                 title="Float timer on top of other apps"
                 style={{ ...btnGhost, fontSize: 14, padding: "10px 16px" }}>
