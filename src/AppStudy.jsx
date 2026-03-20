@@ -142,7 +142,9 @@ export function useStudyTracker(syllabus, onUpdateSyllabus) {
         // Go back one day
         const d = new Date(check);
         d.setDate(d.getDate() - 1);
-        check = d.toISOString().slice(0, 10);
+        check = d.getFullYear() + "-" +
+          String(d.getMonth() + 1).padStart(2, "0") + "-" +
+          String(d.getDate()).padStart(2, "0");
       } else if (date < check) {
         break;
       }
@@ -207,17 +209,25 @@ export function StudyHeatmap({ logs }) {
 
   // Generate 26 weeks of dates — oldest first
   const WEEKS = 26;
-  const todayDate = new Date();
-  todayDate.setHours(0, 0, 0, 0);
-  const todayISO = todayDate.toISOString().slice(0, 10);
   const totalDays = WEEKS * 7;
 
-  // grid[col][row] = ISO date string
+  // Use local date to avoid UTC offset bug (toISOString() returns UTC,
+  // which can be yesterday in IST/UTC+ timezones at night/morning)
+  const localDateStr = (d) => {
+    const yr  = d.getFullYear();
+    const mo  = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return yr + "-" + mo + "-" + day;
+  };
+  const todayDate = new Date();
+  const todayISO  = localDateStr(todayDate);
+
+  // grid[col][row] = local date string
   const allDates = [];
   for (let i = totalDays - 1; i >= 0; i--) {
     const d = new Date(todayDate);
     d.setDate(todayDate.getDate() - i);
-    allDates.push(d.toISOString().slice(0, 10));
+    allDates.push(localDateStr(d));
   }
   const grid = [];
   for (let col = 0; col < WEEKS; col++) {
@@ -232,7 +242,7 @@ export function StudyHeatmap({ logs }) {
     const prevMonth = col > 0 ? grid[col - 1][0].slice(5, 7) : null;
     if (thisMonth !== prevMonth && col - prevLabelCol >= 3) {
       const dt = new Date(grid[col][0] + "T00:00:00");
-      monthLabels[col] = dt.toLocaleString("en-IN", { month: "short" });
+      monthLabels[col] = dt.toLocaleDateString("en-IN", { month: "short" });
       prevLabelCol = col;
     }
   }
@@ -389,7 +399,11 @@ export function StudyHeatmap({ logs }) {
  * If not: shows "Did you study today?" with a topic picker and confirm button.
  */
 export function QuickLogPanel({ syllabus, logs, onSaveLog }) {
-  const todayISO = new Date().toISOString().slice(0, 10);
+  // Use local date string to avoid UTC offset bug in IST timezone
+  const _td = new Date();
+  const todayISO = _td.getFullYear() + "-" +
+    String(_td.getMonth() + 1).padStart(2, "0") + "-" +
+    String(_td.getDate()).padStart(2, "0");
   const todayLog = (logs || []).find(l => l.date === todayISO);
 
   const [showPicker, setShowPicker]   = useState(false);
@@ -551,7 +565,10 @@ export function StreakPanel({ streak, logs, syllabus }) {
   const week   = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    return d.toISOString().slice(0, 10);
+    // Use local date string to avoid UTC offset issues in IST timezone
+    return d.getFullYear() + "-" +
+      String(d.getMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getDate()).padStart(2, "0");
   });
 
   const logsThisWeek = logs.filter(l => week.includes(l.date));
