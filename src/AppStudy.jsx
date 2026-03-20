@@ -1404,23 +1404,31 @@ export function StudyTimer() {
         }
       };
 
-      // Capture canvas as video stream (30fps enough for a timer)
+      // Draw first frame immediately so stream has content
+      drawFrame();
+
+      // Capture canvas as video stream
       const stream = canvas.captureStream(1);
       const video  = document.createElement("video");
       video.srcObject = stream;
       video.muted     = true;
+      video.playsInline = true;
       video.style.cssText = "position:fixed;width:1px;height:1px;opacity:0.01;top:0;left:0;pointer-events:none;";
       document.body.appendChild(video);
       pipRef.current = video;
 
-      await video.play();
+      // Wait for video to be ready before requesting PiP
+      await new Promise((resolve, reject) => {
+        video.onloadedmetadata = resolve;
+        video.onerror = reject;
+        video.play().catch(reject);
+      });
 
-      // Draw first frame then start interval
-      drawFrame();
+      // Start drawing interval
       const tick = setInterval(drawFrame, 500);
       pipInterval.current = tick;
 
-      // Enter PiP
+      // Enter PiP — must be triggered directly from user gesture chain
       await video.requestPictureInPicture();
 
       // Cleanup when PiP exits
