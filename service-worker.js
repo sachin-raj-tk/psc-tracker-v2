@@ -1,7 +1,6 @@
-/* PSC Tracker Service Worker v1.1 */
-const CACHE_NAME = 'psc-tracker-v2';
+/* PSC Tracker Service Worker v1.2 */
+const CACHE_NAME = 'psc-tracker-v3';
 
-// All assets to cache on install
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -19,17 +18,21 @@ const PRECACHE_ASSETS = [
   '/icons/icon-512x512.png',
 ];
 
-// Install — cache core assets immediately
+// ── Module-level alarm state (posted from app on every open / alarm change) ──
+let _alarms     = [];  // [{ id, time, enabled, label }]
+let _firedToday = {};  // { "YYYY-MM-DD_HH:MM": true }
+let _userName   = "Sachin";
+
+// ── Install ──────────────────────────────────────────────────────────────────
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      // Cache what we can, ignore failures (hashed filenames vary per build)
-      return cache.addAll(PRECACHE_ASSETS).catch(() => {});
-    }).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then(cache =>
+      cache.addAll(PRECACHE_ASSETS).catch(() => {})
+    ).then(() => self.skipWaiting())
   );
 });
 
-// Activate — delete old caches
+// ── Activate — delete old caches ─────────────────────────────────────────────
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -38,16 +41,120 @@ self.addEventListener('activate', event => {
   );
 });
 
-// Fetch — Cache First for static assets, Network First for HTML
+// ── Message handler — app posts alarm data to SW ──────────────────────────────
+self.addEventListener('message', event => {
+  const { type, alarms, userName, firedToday } = event.data || {};
+  if (type === 'SET_ALARMS') {
+    _alarms     = alarms     || [];
+    _firedToday = firedToday || {};
+    if (userName) _userName = userName;
+  }
+  if (type === 'MARK_FIRED') {
+    _firedToday[event.data.key] = true;
+  }
+});
+
+// ── Local date/time helpers (SW has no access to app localStorage) ────────────
+function localDateStr() {
+  const d = new Date();
+  return d.getFullYear() + "-" +
+    String(d.getMonth() + 1).padStart(2,"0") + "-" +
+    String(d.getDate()).padStart(2,"0");
+}
+function localTimeStr() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2,"0") + ":" +
+    String(d.getMinutes()).padStart(2,"0");
+}
+
+// ── Check and fire reminders ──────────────────────────────────────────────────
+function checkReminders() {
+  if (!_alarms.length) return;
+  const dateStr = localDateStr();
+  const timeStr = localTimeStr();
+
+  for (const alarm of _alarms) {
+    if (!alarm.enabled) continue;
+    if (alarm.time !== timeStr) continue;
+    const key = dateStr + "_" + alarm.time;
+    if (_firedToday[key]) continue;
+
+    // Mark fired immediately to prevent double-fire
+    _firedToday[key] = true;
+
+    // Prune old keys (keep only today + yesterday)
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const ydStr = yesterday.getFullYear() + "-" +
+      String(yesterday.getMonth() + 1).padStart(2,"0") + "-" +
+      String(yesterday.getDate()).padStart(2,"0");
+    const pruned = {};
+    for (const k of Object.keys(_firedToday)) {
+      if (k.startsWith(dateStr) || k.startsWith(ydStr)) pruned[k] = true;
+    }
+    _firedToday = pruned;
+
+    // Broadcast updated firedToday back to app clients
+    self.clients.matchAll({ type: "window" }).then(clients => {
+      clients.forEach(c => c.postMessage({ type: "FIRED_UPDATE", firedToday: _firedToday }));
+    });
+
+    const ts = Date.now();
+    self.registration.showNotification("📚 PSC Tracker", {
+      body:             "Are you studying, " + _userName + "?",
+      icon:             "/icons/icon-192x192.png",
+      badge:            "/icons/icon-72x72.png",
+      tag:              "study-reminder-" + alarm.id,
+      requireInteraction: true,
+      actions: [
+        { action: "yes", title: "✓ Yes, studying!" },
+        { action: "no",  title: "✗ No" },
+      ],
+      data: { alarmId: alarm.id, timestamp: ts, key },
+    });
+  }
+}
+
+// ── Notification click handler ────────────────────────────────────────────────
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const { action } = event;
+  const { timestamp } = event.notification.data || {};
+
+  if (action === "yes") {
+    // Just dismiss — user is studying
+    return;
+  }
+
+  // action === "no" or notification body tapped — open app to reason input
+  const url = self.registration.scope + "?skipReason=1&ts=" + (timestamp || Date.now());
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(clients => {
+      // If app is already open, focus it and send message
+      for (const client of clients) {
+        if (client.url.includes(self.registration.scope)) {
+          client.focus();
+          client.postMessage({ type: "SHOW_SKIP_REASON", timestamp: timestamp || Date.now() });
+          return;
+        }
+      }
+      // App not open — open it with URL param
+      return self.clients.openWindow(url);
+    })
+  );
+});
+
+// ── Fetch — Cache First + reminder check on every fetch ───────────────────────
 self.addEventListener('fetch', event => {
+  // Check reminders on every network activity (best effort timing)
+  checkReminders();
+
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET and cross-origin (except Google Fonts)
   if (request.method !== 'GET') return;
   if (url.origin !== location.origin && !url.hostname.includes('fonts.g')) return;
 
-  // HTML pages — Network First (get latest), fallback to cache
   if (request.headers.get('accept')?.includes('text/html')) {
     event.respondWith(
       fetch(request)
@@ -61,7 +168,6 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Everything else — Cache First, fallback to network then cache result
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;
