@@ -374,21 +374,30 @@ function postAlarmsToSW(alarms, firedToday) {
  */
 export function checkRemindersNow() {
   const ALL_DAYS = [0,1,2,3,4,5,6];
-  const now     = new Date();
-  const hhmm    = String(now.getHours()).padStart(2,"0") + ":" +
-                  String(now.getMinutes()).padStart(2,"0");
-  const jsDay   = now.getDay();
-  const dateStr = now.getFullYear() + "-" +
-                  String(now.getMonth()+1).padStart(2,"0") + "-" +
-                  String(now.getDate()).padStart(2,"0");
+  const now      = new Date();
+  const jsDay    = now.getDay();
+  const dateStr  = now.getFullYear() + "-" +
+                   String(now.getMonth()+1).padStart(2,"0") + "-" +
+                   String(now.getDate()).padStart(2,"0");
+
+  // Check current minute AND previous minute — guards against interval drift
+  // firedToday key prevents double-firing if both minutes match
+  const hhmm     = String(now.getHours()).padStart(2,"0") + ":" +
+                   String(now.getMinutes()).padStart(2,"0");
+  const prevDate  = new Date(now.getTime() - 60000);
+  const hhmmPrev  = String(prevDate.getHours()).padStart(2,"0") + ":" +
+                    String(prevDate.getMinutes()).padStart(2,"0");
+  const timesToCheck = [hhmm, hhmmPrev];
+
   const current = loadFiredToday();
   let changed   = false;
 
   for (const alarm of loadReminders()) {
     if (!alarm.enabled) continue;
-    if (alarm.time !== hhmm) continue;
     const days = alarm.days || ALL_DAYS;
     if (!days.includes(jsDay)) continue;
+    // Check if alarm matches current or previous minute (catches drift)
+    if (!timesToCheck.includes(alarm.time)) continue;
     const key = dateStr + "_" + alarm.time;
     if (current[key]) continue;
     current[key] = true;
@@ -408,6 +417,10 @@ export function checkRemindersNow() {
             tag:                "study-reminder-" + alarm.id,
             requireInteraction: true,
             data:               { timestamp: ts },
+            actions: [
+              { action: "yes", title: "✓ Yes, studying!" },
+              { action: "no",  title: "✗ No" },
+            ],
           });
         }).catch(() => {
           new Notification(title, { body, icon: "/icons/icon-192x192.png" });
@@ -557,6 +570,10 @@ export function StudyReminders() {
           badge:              "/icons/icon-72x72.png",
           tag:                "test-" + r.id,
           requireInteraction: true,
+          actions: [
+            { action: "yes", title: "✓ Yes, studying!" },
+            { action: "no",  title: "✗ No" },
+          ],
         });
       } else {
         new Notification(title, { body, icon: "/icons/icon-192x192.png" });
