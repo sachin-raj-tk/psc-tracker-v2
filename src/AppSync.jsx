@@ -652,10 +652,6 @@ export function StudyReminders() {
                 {dayLabel(r.days || ALL_DAYS)}{r.label ? "  ·  " + r.label : ""}
               </div>
             </div>
-            <button onClick={() => fireTestNotification(r)}
-              style={{ ...btnGhost, padding:"4px 8px", fontSize:10,
-                color: T.yellow, borderColor: T.yellow+"55" }}
-              title="Test notification now">▶</button>
             <button onClick={() => openEdit(r)}
               style={{ ...btnGhost, padding:"4px 8px", fontSize:11 }}
               title="Edit">✎</button>
