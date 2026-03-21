@@ -1272,15 +1272,47 @@ export function StudyTimer() {
   const [remaining, setRemaining] = useState(0);
   const [running,   setRunning]   = useState(false);
   const [done,      setDone]      = useState(false);
-  const intervalRef = useRef(null);
-  const endTimeRef  = useRef(null); // absolute end timestamp — immune to background/sleep drift
-  const pipRef      = useRef(null); // reference to PiP window
-  const pipInterval = useRef(null); // interval inside PiP window
+  const intervalRef  = useRef(null);
+  const endTimeRef   = useRef(null); // absolute end timestamp — immune to background/sleep drift
+  const pipRef       = useRef(null); // reference to PiP window
+  const pipInterval  = useRef(null); // interval inside PiP window
+  const wakeLockRef  = useRef(null); // WakeLock sentinel — keeps screen on while running
 
-  // Clear interval on unmount
+  // Clear interval and release wake lock on unmount
   useEffect(() => {
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      wakeLockRef.current?.release().catch(() => {});
+    };
   }, []);
+
+  // Re-request wake lock when screen becomes visible again (after unlock)
+  useEffect(() => {
+    const onVisible = async () => {
+      if (document.visibilityState === "visible" && running && !done) {
+        try {
+          if ("wakeLock" in navigator) {
+            wakeLockRef.current = await navigator.wakeLock.request("screen");
+          }
+        } catch {}
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [running, done]);
+
+  // Acquire wake lock when timer starts, release when stopped
+  const acquireWakeLock = async () => {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLockRef.current = await navigator.wakeLock.request("screen");
+      }
+    } catch {}
+  };
+  const releaseWakeLock = () => {
+    wakeLockRef.current?.release().catch(() => {});
+    wakeLockRef.current = null;
+  };
 
   // Tick — recalculate from absolute end time to avoid drift
   const startTick = (endTimestamp) => {
@@ -1311,36 +1343,87 @@ export function StudyTimer() {
     if (secs <= 0) return;
     const endTs = Date.now() + secs * 1000;
     endTimeRef.current = endTs;
+    window.__pipTimerState.endTime   = endTs;
+    window.__pipTimerState.totalSecs = secs;
+    window.__pipTimerState.running   = true;
+    window.__pipTimerState.done      = false;
     setTotalSecs(secs);
     setRemaining(secs);
     setRunning(true);
     setDone(false);
     startTick(endTs);
+    acquireWakeLock();
+    // MediaSession — lets native PiP controls map to timer actions
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: "PSC Study Timer",
+        artist: "Focus session in progress",
+      });
+      navigator.mediaSession.setActionHandler("pause",         () => handlePauseRef.current?.());
+      navigator.mediaSession.setActionHandler("play",          () => handleResumeRef.current?.());
+      navigator.mediaSession.setActionHandler("nexttrack",     () => handleAddMinuteRef.current?.());
+      navigator.mediaSession.setActionHandler("previoustrack", () => handleResetRef.current?.());
+    }
   };
 
   const handlePause = () => {
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
     setRunning(false);
-    // Save remaining time so resume can set a new endTime
     endTimeRef.current = Date.now() + remaining * 1000;
+    // Sync PiP state immediately so floating window shows "Paused"
+    window.__pipTimerState.running = false;
+    window.__pipTimerState.endTime = endTimeRef.current;
+    releaseWakeLock();
   };
 
   const handleResume = () => {
     const endTs = Date.now() + remaining * 1000;
     endTimeRef.current = endTs;
+    window.__pipTimerState.running = true;
+    window.__pipTimerState.endTime = endTs;
+    window.__pipTimerState.done    = false;
     setRunning(true);
     setDone(false);
     startTick(endTs);
+    acquireWakeLock();
   };
 
   const handleReset = () => {
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    if (pipInterval.current) { clearInterval(pipInterval.current); pipInterval.current = null; }
+    if (pipRef.current) { pipRef.current.remove(); pipRef.current = null; }
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
+    }
     setRunning(false);
     setDone(false);
     setTotalSecs(null);
     setRemaining(0);
     endTimeRef.current = null;
+    window.__pipTimerState.endTime   = null;
+    window.__pipTimerState.totalSecs = null;
+    window.__pipTimerState.running   = false;
+    window.__pipTimerState.done      = false;
+    releaseWakeLock();
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.setActionHandler("pause",         null);
+      navigator.mediaSession.setActionHandler("play",          null);
+      navigator.mediaSession.setActionHandler("nexttrack",     null);
+      navigator.mediaSession.setActionHandler("previoustrack", null);
+    }
   };
+
+  // +1 minute — add 60 seconds to the running or paused timer
+  const handleAddMinute = () => {
+    if (totalSecs === null || done) return;
+    endTimeRef.current = (endTimeRef.current || Date.now()) + 60000;
+    window.__pipTimerState.endTime   = endTimeRef.current;
+    window.__pipTimerState.totalSecs = (window.__pipTimerState.totalSecs || 0) + 60;
+    setTotalSecs(prev => (prev || 0) + 60);
+    setRemaining(prev => prev + 60);
+  };
+  // Assign ref so MediaSession handler can call this
+  handleAddMinuteRef.current = handleAddMinute;
 
   // Open Picture-in-Picture using canvas→video approach (works on Android Chrome)
   const handlePiP = async () => {
@@ -1377,10 +1460,23 @@ export function StudyTimer() {
           ctx.font      = "16px monospace";
           ctx.fillText("Session complete!", 160, 155);
         } else if (!state.endTime || !state.running) {
+          // Paused — show remaining time + paused label
+          const left = state.endTime
+            ? Math.max(0, Math.round((state.endTime - Date.now()) / 1000))
+            : 0;
+          const ph = Math.floor(left / 3600);
+          const pm = Math.floor((left % 3600) / 60);
+          const ps = left % 60;
           ctx.fillStyle = "#58a6ff";
-          ctx.font      = "bold 52px monospace";
+          ctx.font      = "bold 44px monospace";
           ctx.textAlign = "center";
-          ctx.fillText("Paused", 160, 130);
+          ctx.fillText(
+            String(ph).padStart(2,"0") + ":" +
+            String(pm).padStart(2,"0") + ":" +
+            String(ps).padStart(2,"0"), 160, 120);
+          ctx.fillStyle = "#8b949e";
+          ctx.font      = "14px monospace";
+          ctx.fillText("⏸ Paused  |  >> +1min  |  |< Reset", 160, 155);
         } else {
           const left = Math.max(0, Math.round((state.endTime - Date.now()) / 1000));
           const h = Math.floor(left / 3600);
@@ -1458,6 +1554,16 @@ export function StudyTimer() {
       String(s).padStart(2,"0")
     );
   };
+
+  // Stable refs so MediaSession handlers always call the latest function
+  const handlePauseRef     = useRef(null);
+  const handleResumeRef    = useRef(null);
+  const handleResetRef     = useRef(null);
+  const handleAddMinuteRef = useRef(null);
+  useEffect(() => { handlePauseRef.current     = handlePause;     });
+  useEffect(() => { handleResumeRef.current    = handleResume;    });
+  useEffect(() => { handleResetRef.current     = handleReset;     });
+  // handleAddMinute defined below — ref assigned after definition
 
   // Progress 0→1
   const progress = totalSecs > 0 ? (totalSecs - remaining) / totalSecs : 0;
@@ -1560,28 +1666,36 @@ export function StudyTimer() {
           )}
 
           {/* Controls */}
-          <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
             {!done && running && (
               <button onClick={handlePause}
-                style={{ ...btnGhost, fontSize: 14, padding: "10px 24px" }}>
+                style={{ ...btnGhost, fontSize: 13, padding: "9px 18px" }}>
                 ⏸ Pause
               </button>
             )}
             {!done && !running && totalSecs !== null && (
               <button onClick={handleResume}
-                style={{ ...btnPrimary(T.accent), fontSize: 14, padding: "10px 24px" }}>
+                style={{ ...btnPrimary(T.accent), fontSize: 13, padding: "9px 18px" }}>
                 ▶ Resume
               </button>
             )}
+            {!done && (
+              <button onClick={handleAddMinute}
+                title="Add 1 minute to timer"
+                style={{ ...btnGhost, fontSize: 13, padding: "9px 14px",
+                  color: T.green, borderColor: T.green + "55" }}>
+                +1 min
+              </button>
+            )}
             <button onClick={handleReset}
-              style={{ ...btnGhost, fontSize: 14, padding: "10px 24px",
+              style={{ ...btnGhost, fontSize: 13, padding: "9px 14px",
                 color: T.red, borderColor: T.red + "44" }}>
               ✕ Reset
             </button>
             {!done && (
               <button onClick={handlePiP}
                 title="Float timer on top of other apps"
-                style={{ ...btnGhost, fontSize: 14, padding: "10px 16px" }}>
+                style={{ ...btnGhost, fontSize: 13, padding: "9px 12px" }}>
                 ⧉ Float
               </button>
             )}
@@ -1592,6 +1706,7 @@ export function StudyTimer() {
       {/* Info */}
       <div style={{ fontSize: 11, color: T.text3, textAlign: "center", lineHeight: 1.7 }}>
         A chime plays when your session ends. Keep this tab open for the timer to work.
+        In float mode: system play/pause controls the timer, skip-next adds 1 min, skip-prev resets.
       </div>
     </div>
   );

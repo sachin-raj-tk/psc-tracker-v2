@@ -45,6 +45,7 @@ import {
 import {
   SyncPanel,
   shareOnWhatsApp,
+  autoSync,
 } from "./AppSync";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -139,12 +140,14 @@ function ExamTimers() {
     saveExamTimers(updated);
     setTimers(updated);
     setShowModal(false);
+    autoSync();
   };
 
   const handleDelete = (id) => {
     const updated = timers.filter(t => t.id !== id);
     saveExamTimers(updated);
     setTimers(updated);
+    autoSync();
   };
 
   // Open Picture-in-Picture for exam countdown using canvas→video (works on Android)
@@ -2022,9 +2025,10 @@ export default function App() {
   const [page,        setPage]        = useState("dashboard");
   const [loading,     setLoading]     = useState(true);
   const [cutoffs,     setCutoffs]     = useState({});
-  const [modal,       setModal]       = useState(null);
-  const [skipReason,  setSkipReason]  = useState(null);
-  const { toasts, showToast }         = useToast();
+  const [modal,        setModal]       = useState(null);
+  const [skipReason,   setSkipReason]  = useState(null);
+  const [showSignInBanner, setShowSignInBanner] = useState(false);
+  const { toasts, showToast }          = useToast();
 
   const activeSyl    = syllabi.find(s => s.id === activeSylId) || syllabi[0] || null;
   const activePapers = papers.filter(p => p.syllabusId === activeSylId);
@@ -2063,7 +2067,24 @@ export default function App() {
           type: "SET_ALARMS", alarms, firedToday, userName: "Sachin",
         });
       } catch {}
+
+      // ── Show sign-in banner if not signed in (session-based) ─────────────
+      const hasToken  = !!sessionStorage.getItem("psc-google-token");
+      const dismissed = !!sessionStorage.getItem("psc-banner-dismissed");
+      if (!hasToken && !dismissed) {
+        setShowSignInBanner(true);
+      }
     })();
+  }, []);
+
+  // Listen for in-app reminder event (when notification permission not granted)
+  useEffect(() => {
+    const handler = (e) => {
+      setSkipReason({ timestamp: e.detail?.timestamp || Date.now() });
+      setPage("study");
+    };
+    window.addEventListener("psc-in-app-reminder", handler);
+    return () => window.removeEventListener("psc-in-app-reminder", handler);
   }, []);
 
   // Listen for SW messages (skip reason trigger from notification)
@@ -2104,7 +2125,10 @@ export default function App() {
   // ── Study tracker ─────────────────────────────────────────────────────────
   const { logs, streak, saveLog, deleteLog, updateRevision } = useStudyTracker(
     activeSyl,
-    (updSyl) => saveSyllabi(syllabi.map(s => s.id === updSyl.id ? updSyl : s))
+    (updSyl) => {
+      saveSyllabi(syllabi.map(s => s.id === updSyl.id ? updSyl : s));
+      autoSync();
+    }
   );
 
   // ── Syllabus CRUD ─────────────────────────────────────────────────────────
@@ -2116,6 +2140,7 @@ export default function App() {
     setActiveSylId(syl.id);
     setModal(null);
     showToast("Syllabus saved ✓");
+    autoSync();
   };
 
   const handleDeleteSyllabus = async (id) => {
@@ -2134,6 +2159,7 @@ export default function App() {
     setModal(null);
     showToast("Paper saved ✓");
     setPage("papers");
+    autoSync();
   };
 
   const handleDeletePaper = async (id) => {
@@ -2273,8 +2299,9 @@ export default function App() {
           <StudyTrackerPage
             syllabus={activeSyl} papers={activePapers}
             logs={logs} streak={streak}
-            onSaveLog={saveLog} onDeleteLog={deleteLog}
-            onUpdateRevision={updateRevision}
+            onSaveLog={(date, topicIds) => { saveLog(date, topicIds); autoSync(); }}
+            onDeleteLog={deleteLog}
+            onUpdateRevision={(tid, delta) => { updateRevision(tid, delta); autoSync(); }}
             allSyllabi={syllabi}
             onSwitchSyllabus={setActiveSylId}
           />
@@ -2405,6 +2432,36 @@ export default function App() {
         ::-webkit-scrollbar-track { background: #0d1117; }
         ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 3px; }
       `}</style>
+
+      {/* Sign-in banner — shown when not signed in to Google Drive */}
+      {showSignInBanner && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 300,
+          background: T.accent + "ee", color: "#000",
+          padding: "10px 16px",
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+        }}>
+          <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>
+            ☁ Sign in to Google Drive to back up your data
+          </span>
+          <button
+            onClick={() => { setPage("sync"); setShowSignInBanner(false); }}
+            style={{ fontSize: 12, fontWeight: 700, padding: "5px 14px",
+              background: "#000", color: "#fff", border: "none",
+              borderRadius: 6, cursor: "pointer" }}>
+            Sign In
+          </button>
+          <button
+            onClick={() => {
+              sessionStorage.setItem("psc-banner-dismissed", "1");
+              setShowSignInBanner(false);
+            }}
+            style={{ fontSize: 18, background: "transparent", border: "none",
+              cursor: "pointer", color: "#000", padding: "0 4px" }}>
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Skip Reason Modal — shown when user taps No on notification */}
       {skipReason && (

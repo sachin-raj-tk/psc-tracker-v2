@@ -33,7 +33,7 @@ import {
  * Instructions in README.md under "Google Drive Sync Setup".
  * Leave as empty string to hide the Google Sign-in option.
  */
-const GOOGLE_CLIENT_ID = "523616350993-easu9f28e8g4prf0dtfvp95bk5obcbkc.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "";
 
 /** Google Drive AppData folder — only this app can read/write it */
 const DRIVE_FILE_NAME  = "psc-tracker-backup.json";
@@ -208,7 +208,24 @@ export function useGoogleSync(getAllData, restoreAllData) {
     setSyncing(false);
   }, [token, getAllData, restoreAllData, signOut]);
 
+  // Expose syncNow globally so any save operation can trigger auto-sync
+  useEffect(() => {
+    window.__pscSyncNow = token ? syncNow : null;
+    return () => { window.__pscSyncNow = null; };
+  }, [token, syncNow]);
+
   return { isSignedIn, user, signIn, signOut, syncNow, lastSynced, syncing, error };
+}
+
+/** Debounced auto-sync — collapses rapid saves into one sync after 3 seconds */
+let _autoSyncTimer = null;
+export function autoSync() {
+  clearTimeout(_autoSyncTimer);
+  _autoSyncTimer = setTimeout(() => {
+    if (typeof window.__pscSyncNow === "function") {
+      window.__pscSyncNow().catch(() => {});
+    }
+  }, 3000);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -350,18 +367,69 @@ function postAlarmsToSW(alarms, firedToday) {
  * Stored in localStorage, posted to service worker on every change.
  */
 export function StudyReminders() {
-  const [reminders,   setReminders]   = useState(loadReminders);
-  const [firedToday,  setFiredToday]  = useState(loadFiredToday);
-  const [showAdd,     setShowAdd]     = useState(false);
-  const [editingId,   setEditingId]   = useState(null);
-  const [formTime,    setFormTime]    = useState("08:00");
-  const [formLabel,   setFormLabel]   = useState("");
-  const [permission,  setPermission]  = useState(
+  const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const ALL_DAYS  = [0,1,2,3,4,5,6];
+
+  const [reminders,  setReminders]  = useState(() => {
+    const raw = loadReminders();
+    return raw.map(r => ({ days: ALL_DAYS, ...r }));
+  });
+  const [firedToday, setFiredToday] = useState(loadFiredToday);
+  const [showAdd,    setShowAdd]    = useState(false);
+  const [editingId,  setEditingId]  = useState(null);
+  const [formTime,   setFormTime]   = useState("08:00");
+  const [formLabel,  setFormLabel]  = useState("");
+  const [formDays,   setFormDays]   = useState(ALL_DAYS);
+  const [permission, setPermission] = useState(
     typeof Notification !== "undefined" ? Notification.permission : "default"
   );
-  const [permError,   setPermError]   = useState("");
+  const [permError,  setPermError]  = useState("");
 
-  // Listen for firedToday updates from SW
+  // ── In-app interval: check every minute ─────────────────────────────────
+  useEffect(() => {
+    const check = () => {
+      const now     = new Date();
+      const hhmm    = String(now.getHours()).padStart(2,"0") + ":" +
+                      String(now.getMinutes()).padStart(2,"0");
+      const jsDay   = now.getDay();
+      const dateStr = now.getFullYear() + "-" +
+                      String(now.getMonth()+1).padStart(2,"0") + "-" +
+                      String(now.getDate()).padStart(2,"0");
+      const current = loadFiredToday();
+      let changed   = false;
+      for (const alarm of loadReminders()) {
+        if (!alarm.enabled) continue;
+        if (alarm.time !== hhmm) continue;
+        const days = alarm.days || ALL_DAYS;
+        if (!days.includes(jsDay)) continue;
+        const key = dateStr + "_" + alarm.time;
+        if (current[key]) continue;
+        current[key] = true;
+        changed = true;
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification("📚 PSC Tracker", {
+            body:             "Are you studying, Sachin?",
+            icon:             "/icons/icon-192x192.png",
+            tag:              "study-reminder-" + alarm.id,
+            requireInteraction: true,
+          });
+        } else {
+          window.dispatchEvent(new CustomEvent("psc-in-app-reminder",
+            { detail: { timestamp: Date.now(), alarmId: alarm.id } }));
+        }
+      }
+      if (changed) {
+        saveFiredToday(current);
+        setFiredToday({ ...current });
+        postAlarmsToSW(loadReminders(), current);
+      }
+    };
+    check();
+    const id = setInterval(check, 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  // SW message listener
   useEffect(() => {
     const handler = (e) => {
       if (e.data?.type === "FIRED_UPDATE") {
@@ -369,7 +437,6 @@ export function StudyReminders() {
         saveFiredToday(e.data.firedToday);
       }
       if (e.data?.type === "SHOW_SKIP_REASON") {
-        // Dispatch custom event that App root listens to
         window.dispatchEvent(new CustomEvent("psc-skip-reason",
           { detail: { timestamp: e.data.timestamp } }));
       }
@@ -378,7 +445,6 @@ export function StudyReminders() {
     return () => navigator.serviceWorker?.removeEventListener("message", handler);
   }, []);
 
-  // Post alarms to SW whenever they change
   useEffect(() => {
     postAlarmsToSW(reminders, firedToday);
   }, [reminders, firedToday]);
@@ -391,29 +457,24 @@ export function StudyReminders() {
     const result = await Notification.requestPermission();
     setPermission(result);
     if (result === "denied") {
-      setPermError("Notifications are blocked. Enable them in your browser settings.");
+      setPermError("Notifications blocked. Enable in browser Settings → Site Settings → Notifications.");
       return false;
     }
     return result === "granted";
   };
 
   const openAdd = () => {
-    setEditingId(null);
-    setFormTime("08:00");
-    setFormLabel("");
-    setShowAdd(true);
+    setEditingId(null); setFormTime("08:00");
+    setFormLabel(""); setFormDays(ALL_DAYS); setShowAdd(true);
   };
 
   const openEdit = (r) => {
-    setEditingId(r.id);
-    setFormTime(r.time);
-    setFormLabel(r.label || "");
-    setShowAdd(true);
+    setEditingId(r.id); setFormTime(r.time);
+    setFormLabel(r.label || ""); setFormDays(r.days || ALL_DAYS); setShowAdd(true);
   };
 
   const handleSave = async () => {
     if (!formTime) return;
-    // Request permission if not granted
     if (permission !== "granted") {
       const ok = await requestPermission();
       if (!ok) return;
@@ -421,11 +482,10 @@ export function StudyReminders() {
     const id = editingId || Math.random().toString(36).slice(2, 10);
     const updated = editingId
       ? reminders.map(r => r.id === editingId
-          ? { ...r, time: formTime, label: formLabel }
+          ? { ...r, time: formTime, label: formLabel, days: formDays }
           : r)
-      : [...reminders, { id, time: formTime, label: formLabel, enabled: true }];
-    // Sort by time
-    updated.sort((a, b) => a.time.localeCompare(b.time));
+      : [...reminders, { id, time: formTime, label: formLabel, days: formDays, enabled: true }];
+    updated.sort((a,b) => a.time.localeCompare(b.time));
     setReminders(updated);
     saveReminders(updated);
     setShowAdd(false);
@@ -433,152 +493,152 @@ export function StudyReminders() {
 
   const toggleReminder = (id) => {
     const updated = reminders.map(r => r.id === id ? { ...r, enabled: !r.enabled } : r);
-    setReminders(updated);
-    saveReminders(updated);
+    setReminders(updated); saveReminders(updated);
+  };
+
+  const toggleDay = (day) => {
+    setFormDays(prev =>
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort((a,b)=>a-b)
+    );
   };
 
   const deleteReminder = (id) => {
     const updated = reminders.filter(r => r.id !== id);
-    setReminders(updated);
-    saveReminders(updated);
+    setReminders(updated); saveReminders(updated);
   };
 
   const fmt12 = (hhmm) => {
-    const [h, m] = hhmm.split(":").map(Number);
-    const ampm = h >= 12 ? "PM" : "AM";
-    const h12  = h % 12 || 12;
-    return h12 + ":" + String(m).padStart(2,"0") + " " + ampm;
+    const [h,m] = hhmm.split(":").map(Number);
+    return (h%12||12) + ":" + String(m).padStart(2,"0") + (h>=12?" PM":" AM");
+  };
+
+  const dayLabel = (days) => {
+    if (!days || days.length === 7) return "Every day";
+    if (days.length === 0) return "No days set";
+    if (JSON.stringify(days) === JSON.stringify([1,2,3,4,5])) return "Weekdays";
+    if (JSON.stringify(days) === JSON.stringify([0,6])) return "Weekends";
+    return days.map(d => DAY_NAMES[d]).join(", ");
   };
 
   return (
     <div style={{ ...cardStyle, marginBottom: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between",
-        alignItems: "center", marginBottom: 12 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>
-          🔔 Study Reminders
-        </div>
-        <button onClick={openAdd}
-          style={{ ...btnGhost, fontSize: 12, padding: "4px 12px" }}>
+      <div style={{ display:"flex", justifyContent:"space-between",
+        alignItems:"center", marginBottom:12 }}>
+        <div style={{ fontSize:14, fontWeight:700, color:T.text }}>🔔 Study Reminders</div>
+        <button onClick={openAdd} style={{ ...btnGhost, fontSize:12, padding:"4px 12px" }}>
           + Add
         </button>
       </div>
 
-      {/* Permission warning */}
       {permission === "denied" && (
-        <div style={{ fontSize: 11, color: T.orange, marginBottom: 10,
-          padding: "8px 12px", background: T.orange + "15", borderRadius: 6 }}>
-          ⚠ Notifications are blocked. Go to browser Settings → Site Settings →
-          Notifications → allow PSC Tracker.
+        <div style={{ fontSize:11, color:T.orange, marginBottom:10,
+          padding:"8px 12px", background:T.orange+"15", borderRadius:6 }}>
+          ⚠ Notifications blocked. Enable in browser Settings → Site Settings → Notifications.
         </div>
       )}
-      {permError && (
-        <div style={{ fontSize: 11, color: T.red, marginBottom: 10 }}>
-          {permError}
-        </div>
-      )}
+      {permError && <div style={{ fontSize:11, color:T.red, marginBottom:10 }}>{permError}</div>}
 
-      {/* Empty state */}
       {reminders.length === 0 && (
-        <div style={{ fontSize: 12, color: T.text3, textAlign: "center", padding: "16px 0" }}>
-          No reminders set. Tap "+ Add" to add your first daily reminder.
+        <div style={{ fontSize:12, color:T.text3, textAlign:"center", padding:"16px 0" }}>
+          No reminders set. Tap "+ Add" to create your first reminder.
         </div>
       )}
 
-      {/* Reminder list */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
         {reminders.map(r => (
           <div key={r.id} style={{
-            display: "flex", alignItems: "center", gap: 12,
-            padding: "10px 14px", borderRadius: 8,
-            background: T.surface,
-            border: "1px solid " + (r.enabled ? T.accent + "44" : T.border),
+            display:"flex", alignItems:"center", gap:12,
+            padding:"10px 14px", borderRadius:8, background:T.surface,
+            border:"1px solid "+(r.enabled ? T.accent+"44" : T.border),
             opacity: r.enabled ? 1 : 0.6,
           }}>
-            {/* Toggle */}
-            <button onClick={() => toggleReminder(r.id)}
-              style={{
-                width: 44, height: 24, borderRadius: 12, border: "none",
-                cursor: "pointer", flexShrink: 0, position: "relative",
-                background: r.enabled ? T.green : T.border2,
-                transition: "background 0.2s",
-              }}>
+            <button onClick={() => toggleReminder(r.id)} style={{
+              width:44, height:24, borderRadius:12, border:"none",
+              cursor:"pointer", flexShrink:0, position:"relative",
+              background: r.enabled ? T.green : T.border2,
+            }}>
               <div style={{
-                position: "absolute", top: 3,
-                left: r.enabled ? 23 : 3,
-                width: 18, height: 18, borderRadius: "50%",
-                background: "#fff", transition: "left 0.2s",
+                position:"absolute", top:3, left: r.enabled ? 23 : 3,
+                width:18, height:18, borderRadius:"50%", background:"#fff",
               }} />
             </button>
-
-            {/* Time + label */}
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 700,
-                color: r.enabled ? T.text : T.text3,
-                fontFamily: "monospace" }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:15, fontWeight:700,
+                color: r.enabled ? T.text : T.text3, fontFamily:"monospace" }}>
                 {fmt12(r.time)}
               </div>
-              {r.label && (
-                <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
-                  {r.label}
-                </div>
-              )}
+              <div style={{ fontSize:11, color:T.text3, marginTop:2 }}>
+                {dayLabel(r.days || ALL_DAYS)}{r.label ? "  ·  " + r.label : ""}
+              </div>
             </div>
-
-            {/* Edit + Delete */}
             <button onClick={() => openEdit(r)}
-              style={{ ...btnGhost, padding: "4px 8px", fontSize: 11 }}>✎</button>
+              style={{ ...btnGhost, padding:"4px 8px", fontSize:11 }}>✎</button>
             <button onClick={() => deleteReminder(r.id)}
-              style={{ ...btnGhost, padding: "4px 8px", fontSize: 11,
-                color: T.red, borderColor: T.red + "44" }}>✕</button>
+              style={{ ...btnGhost, padding:"4px 8px", fontSize:11,
+                color:T.red, borderColor:T.red+"44" }}>✕</button>
           </div>
         ))}
       </div>
 
-      {/* Add/Edit modal */}
       {showAdd && (
         <div style={{
-          position: "fixed", inset: 0, zIndex: 500,
-          background: "rgba(0,0,0,0.6)",
-          display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+          position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.6)",
+          display:"flex", alignItems:"center", justifyContent:"center", padding:24,
         }} onClick={() => setShowAdd(false)}>
           <div style={{
-            background: "#0d1117", borderRadius: 12, padding: 24,
-            maxWidth: 320, width: "100%",
-            border: "1px solid " + T.border,
+            background:"#0d1117", borderRadius:12, padding:24,
+            maxWidth:340, width:"100%", border:"1px solid "+T.border,
           }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 16 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:T.text, marginBottom:16 }}>
               {editingId ? "Edit Reminder" : "Add Reminder"}
             </div>
 
-            <label style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 14 }}>
-              <span style={{ fontSize: 10, color: T.text3,
-                textTransform: "uppercase", letterSpacing: "0.08em" }}>Time *</span>
+            <label style={{ display:"flex", flexDirection:"column", gap:5, marginBottom:14 }}>
+              <span style={{ fontSize:10, color:T.text3,
+                textTransform:"uppercase", letterSpacing:"0.08em" }}>Time *</span>
               <input type="time" value={formTime}
                 onChange={e => setFormTime(e.target.value)}
-                style={{ fontSize: 22, fontWeight: 700, textAlign: "center",
-                  background: "#0d1117", color: T.text,
-                  border: "1px solid " + T.border, borderRadius: 8, padding: "10px 12px",
-                  fontFamily: "monospace", width: "100%", boxSizing: "border-box" }} />
+                style={{ fontSize:22, fontWeight:700, textAlign:"center",
+                  background:"#0d1117", color:T.text, border:"1px solid "+T.border,
+                  borderRadius:8, padding:"10px 12px", fontFamily:"monospace",
+                  width:"100%", boxSizing:"border-box" }} />
             </label>
 
-            <label style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 20 }}>
-              <span style={{ fontSize: 10, color: T.text3,
-                textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Label (optional)
-              </span>
-              <input value={formLabel}
-                onChange={e => setFormLabel(e.target.value)}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:10, color:T.text3, textTransform:"uppercase",
+                letterSpacing:"0.08em", marginBottom:8 }}>Repeat on</div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:8 }}>
+                {DAY_NAMES.map((name, d) => (
+                  <button key={d} onClick={() => toggleDay(d)} style={{
+                    padding:"5px 10px", borderRadius:6, fontSize:12, cursor:"pointer",
+                    fontWeight: formDays.includes(d) ? 700 : 400,
+                    background: formDays.includes(d) ? T.accent+"33" : "transparent",
+                    color:      formDays.includes(d) ? T.accent2 : T.text3,
+                    border:     "1px solid "+(formDays.includes(d) ? T.accent : T.border2),
+                  }}>{name}</button>
+                ))}
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                {[["Every day", ALL_DAYS],["Weekdays",[1,2,3,4,5]],["Weekends",[0,6]]].map(([lbl,days]) => (
+                  <button key={lbl} onClick={() => setFormDays(days)}
+                    style={{ ...btnGhost, fontSize:11, padding:"3px 10px" }}>{lbl}</button>
+                ))}
+              </div>
+            </div>
+
+            <label style={{ display:"flex", flexDirection:"column", gap:5, marginBottom:20 }}>
+              <span style={{ fontSize:10, color:T.text3,
+                textTransform:"uppercase", letterSpacing:"0.08em" }}>Label (optional)</span>
+              <input value={formLabel} onChange={e => setFormLabel(e.target.value)}
                 placeholder="e.g. Morning, Lunch break..."
-                style={{ fontSize: 13, background: "#0d1117", color: T.text,
-                  border: "1px solid " + T.border, borderRadius: 8, padding: "8px 12px",
-                  width: "100%", boxSizing: "border-box" }} />
+                style={{ fontSize:13, background:"#0d1117", color:T.text,
+                  border:"1px solid "+T.border, borderRadius:8, padding:"8px 12px",
+                  width:"100%", boxSizing:"border-box" }} />
             </label>
 
-            {permError && (
-              <div style={{ fontSize: 11, color: T.red, marginBottom: 12 }}>{permError}</div>
-            )}
+            {permError && <div style={{ fontSize:11, color:T.red, marginBottom:12 }}>{permError}</div>}
 
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
               <button onClick={() => setShowAdd(false)} style={btnGhost}>Cancel</button>
               <button onClick={handleSave} style={btnPrimary(T.accent)}>
                 {editingId ? "Update" : "Add Reminder"}
@@ -590,6 +650,7 @@ export function StudyReminders() {
     </div>
   );
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SYNC PANEL — combined UI
