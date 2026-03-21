@@ -33,7 +33,7 @@ import {
  * Instructions in README.md under "Google Drive Sync Setup".
  * Leave as empty string to hide the Google Sign-in option.
  */
-const GOOGLE_CLIENT_ID = "523616350993-easu9f28e8g4prf0dtfvp95bk5obcbkc.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "";
 
 /** Google Drive AppData folder — only this app can read/write it */
 const DRIVE_FILE_NAME  = "psc-tracker-backup.json";
@@ -541,6 +541,33 @@ export function StudyReminders() {
     return days.map(d => DAY_NAMES[d]).join(", ");
   };
 
+  const fireTestNotification = async (r) => {
+    if (permission !== "granted") {
+      const ok = await requestPermission();
+      if (!ok) return;
+    }
+    const title = r.label || "📚 PSC Tracker";
+    const body  = "Are you studying, Sachin?";
+    try {
+      if (navigator.serviceWorker?.controller) {
+        const reg = await navigator.serviceWorker.ready;
+        await reg.showNotification(title, {
+          body,
+          icon:               "/icons/icon-192x192.png",
+          badge:              "/icons/icon-72x72.png",
+          tag:                "test-" + r.id,
+          requireInteraction: true,
+        });
+      } else {
+        new Notification(title, { body, icon: "/icons/icon-192x192.png" });
+      }
+    } catch (e) {
+      alert("Notification failed: " + (e.message || "unknown error") +
+            "\nPermission: " + Notification.permission +
+            "\nSW active: " + !!navigator.serviceWorker?.controller);
+    }
+  };
+
   return (
     <div style={{ ...cardStyle, marginBottom: 16 }}>
       <div style={{ display:"flex", justifyContent:"space-between",
@@ -551,12 +578,28 @@ export function StudyReminders() {
         </button>
       </div>
 
-      {permission === "denied" && (
-        <div style={{ fontSize:11, color:T.orange, marginBottom:10,
-          padding:"8px 12px", background:T.orange+"15", borderRadius:6 }}>
-          ⚠ Notifications blocked. Enable in browser Settings → Site Settings → Notifications.
-        </div>
-      )}
+      {/* Permission status indicator */}
+      <div style={{ fontSize:11, marginBottom:10, padding:"6px 10px",
+        borderRadius:6, background:
+          permission === "granted" ? T.green+"18" :
+          permission === "denied"  ? T.red+"18"   : T.border,
+        color:
+          permission === "granted" ? T.green  :
+          permission === "denied"  ? T.red    : T.text3,
+        display:"flex", alignItems:"center", gap:6 }}>
+        <span>
+          {permission === "granted" ? "✓ Notifications allowed" :
+           permission === "denied"  ? "✗ Notifications blocked — enable in browser settings" :
+           "○ Notification permission not yet granted — tap + Add to allow"}
+        </span>
+        {permission !== "granted" && (
+          <button onClick={requestPermission}
+            style={{ ...btnGhost, fontSize:10, padding:"2px 8px", marginLeft:"auto" }}>
+            Allow
+          </button>
+        )}
+      </div>
+
       {permError && <div style={{ fontSize:11, color:T.red, marginBottom:10 }}>{permError}</div>}
 
       {reminders.length === 0 && (
@@ -592,6 +635,10 @@ export function StudyReminders() {
                 {dayLabel(r.days || ALL_DAYS)}{r.label ? "  ·  " + r.label : ""}
               </div>
             </div>
+            <button onClick={() => fireTestNotification(r)}
+              style={{ ...btnGhost, padding:"4px 8px", fontSize:10,
+                color: T.yellow, borderColor: T.yellow+"55" }}
+              title="Test notification now">▶</button>
             <button onClick={() => openEdit(r)}
               style={{ ...btnGhost, padding:"4px 8px", fontSize:11 }}
               title="Edit">✎</button>
