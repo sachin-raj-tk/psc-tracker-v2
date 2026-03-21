@@ -1384,11 +1384,22 @@ export function StudyTimer() {
   };
 
   const handleResume = () => {
-    const endTs = Date.now() + remaining * 1000;
+    // Read remaining seconds from pip state (frozen at pause) as primary source,
+    // fall back to endTimeRef calculation, then React state.
+    // This ensures PiP play button works even if React state is stale.
+    const frozenSecs = window.__pipTimerState.remainingSecs;
+    const secsLeft   = frozenSecs != null
+      ? frozenSecs
+      : endTimeRef.current
+        ? Math.max(0, Math.round((endTimeRef.current - Date.now()) / 1000))
+        : remaining;
+    const endTs = Date.now() + secsLeft * 1000;
     endTimeRef.current = endTs;
-    window.__pipTimerState.running = true;
-    window.__pipTimerState.endTime = endTs;
-    window.__pipTimerState.done    = false;
+    window.__pipTimerState.running       = true;
+    window.__pipTimerState.endTime       = endTs;
+    window.__pipTimerState.done          = false;
+    window.__pipTimerState.remainingSecs = null; // clear frozen value — running again
+    setRemaining(secsLeft);
     setRunning(true);
     setDone(false);
     startTick();

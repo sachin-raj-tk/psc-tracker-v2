@@ -33,7 +33,7 @@ import {
  * Instructions in README.md under "Google Drive Sync Setup".
  * Leave as empty string to hide the Google Sign-in option.
  */
-const GOOGLE_CLIENT_ID = "523616350993-easu9f28e8g4prf0dtfvp95bk5obcbkc.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "";
 
 /** Google Drive AppData folder — only this app can read/write it */
 const DRIVE_FILE_NAME  = "psc-tracker-backup.json";
@@ -409,10 +409,13 @@ export function StudyReminders() {
         if (typeof Notification !== "undefined" && Notification.permission === "granted") {
           // Use SW registration.showNotification for reliable PWA notifications
           const ts = Date.now();
+          // Use label as notification title if set (e.g. "Morning Study")
+          const title = alarm.label || "📚 PSC Tracker";
+          const body  = "Are you studying, Sachin?";
           if (navigator.serviceWorker?.controller) {
             navigator.serviceWorker.ready.then(reg => {
-              reg.showNotification("📚 PSC Tracker", {
-                body:               "Are you studying, Sachin?",
+              reg.showNotification(title, {
+                body:               body,
                 icon:               "/icons/icon-192x192.png",
                 badge:              "/icons/icon-72x72.png",
                 tag:                "study-reminder-" + alarm.id,
@@ -420,17 +423,10 @@ export function StudyReminders() {
                 data:               { timestamp: ts },
               });
             }).catch(() => {
-              // Fallback to direct Notification
-              new Notification("📚 PSC Tracker", {
-                body: "Are you studying, Sachin?",
-                icon: "/icons/icon-192x192.png",
-              });
+              new Notification(title, { body, icon: "/icons/icon-192x192.png" });
             });
           } else {
-            new Notification("📚 PSC Tracker", {
-              body: "Are you studying, Sachin?",
-              icon: "/icons/icon-192x192.png",
-            });
+            new Notification(title, { body, icon: "/icons/icon-192x192.png" });
           }
         } else {
           // No notification permission — show in-app prompt instead
