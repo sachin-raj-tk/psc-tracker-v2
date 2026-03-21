@@ -1272,11 +1272,16 @@ export function StudyTimer() {
   const [remaining, setRemaining] = useState(0);
   const [running,   setRunning]   = useState(false);
   const [done,      setDone]      = useState(false);
-  const intervalRef  = useRef(null);
-  const endTimeRef   = useRef(null); // absolute end timestamp — immune to background/sleep drift
-  const pipRef       = useRef(null); // reference to PiP window
-  const pipInterval  = useRef(null); // interval inside PiP window
-  const wakeLockRef  = useRef(null); // WakeLock sentinel — keeps screen on while running
+  const intervalRef      = useRef(null);
+  const endTimeRef       = useRef(null);
+  const pipRef           = useRef(null);
+  const pipInterval      = useRef(null);
+  const wakeLockRef      = useRef(null);
+  // Stable refs for MediaSession — always hold latest handler versions
+  const handlePauseRef     = useRef(null);
+  const handleResumeRef    = useRef(null);
+  const handleResetRef     = useRef(null);
+  const handleAddMinuteRef = useRef(null);
 
   // Clear interval and release wake lock on unmount
   useEffect(() => {
@@ -1422,7 +1427,10 @@ export function StudyTimer() {
     setTotalSecs(prev => (prev || 0) + 60);
     setRemaining(prev => prev + 60);
   };
-  // Assign ref so MediaSession handler can call this
+  // Update stable ref on every render (safe — refs don't trigger re-renders)
+  handlePauseRef.current     = handlePause;
+  handleResumeRef.current    = handleResume;
+  handleResetRef.current     = handleReset;
   handleAddMinuteRef.current = handleAddMinute;
 
   // Open Picture-in-Picture using canvas→video approach (works on Android Chrome)
@@ -1554,16 +1562,6 @@ export function StudyTimer() {
       String(s).padStart(2,"0")
     );
   };
-
-  // Stable refs so MediaSession handlers always call the latest function
-  const handlePauseRef     = useRef(null);
-  const handleResumeRef    = useRef(null);
-  const handleResetRef     = useRef(null);
-  const handleAddMinuteRef = useRef(null);
-  useEffect(() => { handlePauseRef.current     = handlePause;     });
-  useEffect(() => { handleResumeRef.current    = handleResume;    });
-  useEffect(() => { handleResetRef.current     = handleReset;     });
-  // handleAddMinute defined below — ref assigned after definition
 
   // Progress 0→1
   const progress = totalSecs > 0 ? (totalSecs - remaining) / totalSecs : 0;

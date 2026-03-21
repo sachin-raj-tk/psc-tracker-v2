@@ -33,7 +33,7 @@ import {
  * Instructions in README.md under "Google Drive Sync Setup".
  * Leave as empty string to hide the Google Sign-in option.
  */
-const GOOGLE_CLIENT_ID = "523616350993-easu9f28e8g4prf0dtfvp95bk5obcbkc.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "";
 
 /** Google Drive AppData folder — only this app can read/write it */
 const DRIVE_FILE_NAME  = "psc-tracker-backup.json";
@@ -407,13 +407,33 @@ export function StudyReminders() {
         current[key] = true;
         changed = true;
         if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-          new Notification("📚 PSC Tracker", {
-            body:             "Are you studying, Sachin?",
-            icon:             "/icons/icon-192x192.png",
-            tag:              "study-reminder-" + alarm.id,
-            requireInteraction: true,
-          });
+          // Use SW registration.showNotification for reliable PWA notifications
+          const ts = Date.now();
+          if (navigator.serviceWorker?.controller) {
+            navigator.serviceWorker.ready.then(reg => {
+              reg.showNotification("📚 PSC Tracker", {
+                body:               "Are you studying, Sachin?",
+                icon:               "/icons/icon-192x192.png",
+                badge:              "/icons/icon-72x72.png",
+                tag:                "study-reminder-" + alarm.id,
+                requireInteraction: true,
+                data:               { timestamp: ts },
+              });
+            }).catch(() => {
+              // Fallback to direct Notification
+              new Notification("📚 PSC Tracker", {
+                body: "Are you studying, Sachin?",
+                icon: "/icons/icon-192x192.png",
+              });
+            });
+          } else {
+            new Notification("📚 PSC Tracker", {
+              body: "Are you studying, Sachin?",
+              icon: "/icons/icon-192x192.png",
+            });
+          }
         } else {
+          // No notification permission — show in-app prompt instead
           window.dispatchEvent(new CustomEvent("psc-in-app-reminder",
             { detail: { timestamp: Date.now(), alarmId: alarm.id } }));
         }
@@ -572,10 +592,19 @@ export function StudyReminders() {
               </div>
             </div>
             <button onClick={() => openEdit(r)}
-              style={{ ...btnGhost, padding:"4px 8px", fontSize:11 }}>✎</button>
+              style={{ ...btnGhost, padding:"4px 8px", fontSize:11 }}
+              title="Edit">✎</button>
+            <button onClick={() => {
+                const copy = { ...r, id: Math.random().toString(36).slice(2,10), label: (r.label ? r.label + " (copy)" : "Copy") };
+                const updated = [...reminders, copy].sort((a,b) => a.time.localeCompare(b.time));
+                setReminders(updated); saveReminders(updated);
+              }}
+              style={{ ...btnGhost, padding:"4px 8px", fontSize:11 }}
+              title="Duplicate">⊕</button>
             <button onClick={() => deleteReminder(r.id)}
               style={{ ...btnGhost, padding:"4px 8px", fontSize:11,
-                color:T.red, borderColor:T.red+"44" }}>✕</button>
+                color:T.red, borderColor:T.red+"44" }}
+              title="Delete">✕</button>
           </div>
         ))}
       </div>
@@ -593,16 +622,23 @@ export function StudyReminders() {
               {editingId ? "Edit Reminder" : "Add Reminder"}
             </div>
 
-            <label style={{ display:"flex", flexDirection:"column", gap:5, marginBottom:14 }}>
+            <div style={{ marginBottom:14 }}>
               <span style={{ fontSize:10, color:T.text3,
                 textTransform:"uppercase", letterSpacing:"0.08em" }}>Time *</span>
+              {/* Large 12-hour display */}
+              <div style={{ fontSize:28, fontWeight:900, color:T.accent2,
+                textAlign:"center", margin:"8px 0 4px", fontFamily:"monospace",
+                letterSpacing:"0.04em" }}>
+                {fmt12(formTime || "00:00")}
+              </div>
+              {/* Native time input — smaller, for picking the value */}
               <input type="time" value={formTime}
                 onChange={e => setFormTime(e.target.value)}
-                style={{ fontSize:22, fontWeight:700, textAlign:"center",
-                  background:"#0d1117", color:T.text, border:"1px solid "+T.border,
-                  borderRadius:8, padding:"10px 12px", fontFamily:"monospace",
+                style={{ fontSize:14, textAlign:"center",
+                  background:"#0d1117", color:T.text3, border:"1px solid "+T.border,
+                  borderRadius:8, padding:"6px 12px", fontFamily:"monospace",
                   width:"100%", boxSizing:"border-box" }} />
-            </label>
+            </div>
 
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:10, color:T.text3, textTransform:"uppercase",
