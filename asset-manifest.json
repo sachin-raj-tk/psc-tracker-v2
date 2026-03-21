@@ -1,11 +1,11 @@
 {
   "files": {
     "main.css": "/psc-tracker-v2/static/css/main.5f4110c7.css",
-    "main.js": "/psc-tracker-v2/static/js/main.e3389f75.js",
+    "main.js": "/psc-tracker-v2/static/js/main.ec6b70ca.js",
     "index.html": "/psc-tracker-v2/index.html"
   },
   "entrypoints": [
     "static/css/main.5f4110c7.css",
-    "static/js/main.e3389f75.js"
+    "static/js/main.ec6b70ca.js"
   ]
 }
