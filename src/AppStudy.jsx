@@ -1319,26 +1319,28 @@ export function StudyTimer() {
     wakeLockRef.current = null;
   };
 
-  // Tick — recalculate from absolute end time to avoid drift
-  const startTick = (endTimestamp) => {
+  // Tick — always reads endTimeRef.current so +1min updates immediately
+  const startTick = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => {
-      const left = Math.max(0, Math.round((endTimestamp - Date.now()) / 1000));
+      const end  = endTimeRef.current;
+      const left = end ? Math.max(0, Math.round((end - Date.now()) / 1000)) : 0;
       setRemaining(left);
       // Update PiP state so floating window stays in sync
-      window.__pipTimerState.endTime   = endTimestamp;
-      window.__pipTimerState.running   = true;
-      window.__pipTimerState.done      = left <= 0;
+      window.__pipTimerState.endTime  = end;
+      window.__pipTimerState.running  = true;
+      window.__pipTimerState.done     = left <= 0;
       if (left <= 0) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
         setRunning(false);
         setDone(true);
-        window.__pipTimerState.running = false;
-        window.__pipTimerState.done    = true;
+        window.__pipTimerState.running       = false;
+        window.__pipTimerState.done          = true;
+        window.__pipTimerState.remainingSecs = 0;
         playChime();
       }
-    }, 500); // tick twice/sec for accuracy
+    }, 500);
   };
 
   const handleStart = () => {
@@ -1356,7 +1358,7 @@ export function StudyTimer() {
     setRemaining(secs);
     setRunning(true);
     setDone(false);
-    startTick(endTs);
+    startTick();
     acquireWakeLock();
     // MediaSession — lets native PiP controls map to timer actions
     if ("mediaSession" in navigator) {
@@ -1375,9 +1377,9 @@ export function StudyTimer() {
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
     setRunning(false);
     endTimeRef.current = Date.now() + remaining * 1000;
-    // Sync PiP state immediately so floating window shows "Paused"
-    window.__pipTimerState.running = false;
-    window.__pipTimerState.endTime = endTimeRef.current;
+    // Store frozen remaining seconds so PiP displays a fixed paused time
+    window.__pipTimerState.running       = false;
+    window.__pipTimerState.remainingSecs = remaining; // frozen — does not count down
     releaseWakeLock();
   };
 
@@ -1389,7 +1391,7 @@ export function StudyTimer() {
     window.__pipTimerState.done    = false;
     setRunning(true);
     setDone(false);
-    startTick(endTs);
+    startTick();
     acquireWakeLock();
   };
 
@@ -1405,10 +1407,11 @@ export function StudyTimer() {
     setTotalSecs(null);
     setRemaining(0);
     endTimeRef.current = null;
-    window.__pipTimerState.endTime   = null;
-    window.__pipTimerState.totalSecs = null;
-    window.__pipTimerState.running   = false;
-    window.__pipTimerState.done      = false;
+    window.__pipTimerState.endTime      = null;
+    window.__pipTimerState.totalSecs    = null;
+    window.__pipTimerState.running      = false;
+    window.__pipTimerState.done         = false;
+    window.__pipTimerState.remainingSecs = null;
     releaseWakeLock();
     if ("mediaSession" in navigator) {
       navigator.mediaSession.setActionHandler("pause",         null);
@@ -1467,11 +1470,9 @@ export function StudyTimer() {
           ctx.fillStyle = "#8b949e";
           ctx.font      = "16px monospace";
           ctx.fillText("Session complete!", 160, 155);
-        } else if (!state.endTime || !state.running) {
-          // Paused — show remaining time + paused label
-          const left = state.endTime
-            ? Math.max(0, Math.round((state.endTime - Date.now()) / 1000))
-            : 0;
+        } else if (!state.running) {
+          // Paused — show FROZEN remaining seconds (not counting down)
+          const left = state.remainingSecs != null ? state.remainingSecs : 0;
           const ph = Math.floor(left / 3600);
           const pm = Math.floor((left % 3600) / 60);
           const ps = left % 60;
