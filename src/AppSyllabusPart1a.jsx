@@ -70,6 +70,139 @@ export const emptyPaper = (syllabus) => ({
   content:     { text: "", docxExtracted: "", docxName: "", pdfData: "", pdfName: "" },
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EMBEDDED BLOCK PARSER — primary parse path for Claude-generated docx files
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Extract lines between ##MARKER## and ##PSC_END## from raw docx text.
+ * Returns array of trimmed non-empty lines, or null if marker not found.
+ * This is the primary parse path — regex fallback runs only when null.
+ */
+function extractEmbeddedBlock(rawText, startMarker) {
+  const start = rawText.indexOf(startMarker);
+  if (start === -1) return null;
+  const end = rawText.indexOf("##PSC_END##", start + startMarker.length);
+  if (end === -1) return null;
+  return rawText
+    .slice(start + startMarker.length, end)
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l => l.length > 0);
+}
+
+/**
+ * Parse ##PSC_AK_V1## block into multi-booklet answer key structure.
+ * Each line: qNo,A-answer,B-answer,C-answer,D-answer
+ */
+function parseAKMultiBlock(lines) {
+  const booklets = { A: {}, B: {}, C: {}, D: {} };
+  const deleted  = { A: [], B: [], C: [], D: [] };
+  const warnings = [];
+  for (const line of lines) {
+    const parts = line.split(",");
+    if (parts.length !== 5) continue;
+    const q = parseInt(parts[0]);
+    if (isNaN(q) || q < 1 || q > 100) continue;
+    "ABCD".split("").forEach((bl, i) => {
+      const ans = (parts[i + 1] || "").trim().toUpperCase();
+      if (!["A","B","C","D","X"].includes(ans)) return;
+      booklets[bl][String(q)] = ans;
+      if (ans === "X") deleted[bl].push(q);
+    });
+  }
+  const counts = Object.values(booklets).map(b => Object.keys(b).length);
+  if (Math.max(...counts) < 90)
+    warnings.push("Embedded block: only " + Math.max(...counts) + " questions found. Expected 100.");
+  return { booklets, deleted, warnings };
+}
+
+/**
+ * Parse ##PSC_AK_SINGLE_V1## block into single-booklet answer key structure.
+ * First line: BOOKLET,A  (or B/C/D)
+ * Subsequent lines: qNo,answer
+ */
+function parseAKSingleBlock(lines) {
+  const warnings = [];
+  if (!lines.length || !lines[0].startsWith("BOOKLET,")) return null;
+  const code = lines[0].split(",")[1]?.trim().toUpperCase() || "A";
+  const answers = {};
+  const deleted = [];
+  for (const line of lines.slice(1)) {
+    const parts = line.split(",");
+    if (parts.length !== 2) continue;
+    const q = parseInt(parts[0]);
+    if (isNaN(q) || q < 1 || q > 100) continue;
+    const ans = (parts[1] || "").trim().toUpperCase();
+    if (!["A","B","C","D","X"].includes(ans)) continue;
+    answers[String(q)] = ans;
+    if (ans === "X") deleted.push(q);
+  }
+  if (Object.keys(answers).length < 90)
+    warnings.push("Embedded block: only " + Object.keys(answers).length + " questions found. Expected 100.");
+  return { code, answers, deleted, warnings };
+}
+
+/**
+ * Parse ##PSC_TM_V1## block into Q→topicNo map.
+ * Each line: qNo,topicNo
+ */
+function parseTMBlock(lines) {
+  const qToTopicNo = {};
+  const warnings   = [];
+  for (const line of lines) {
+    const parts = line.split(",");
+    if (parts.length !== 2) continue;
+    const q = parseInt(parts[0]);
+    const t = parseInt(parts[1]);
+    if (isNaN(q) || isNaN(t) || q < 1 || q > 100 || t < 1) continue;
+    qToTopicNo[q] = t;
+  }
+  const tagged = Object.keys(qToTopicNo).length;
+  if (tagged === 0)
+    warnings.push("Embedded block found but no mappings parsed. Check block format.");
+  return { qToTopicNo, warnings };
+}
+
+/**
+ * Parse ##PSC_SYL_V1## block into subjects/topics structure.
+ * SUBJECT lines: SUBJECT,name,maxMarks,firstTopicNo,lastTopicNo
+ * TOPIC lines:   TOPIC,topicNo,topicName
+ */
+function parseSYLBlock(lines) {
+  const subjects = [];
+  const warnings = [];
+  let cur = null;
+  for (const line of lines) {
+    if (line.startsWith("SUBJECT,")) {
+      if (cur) subjects.push(cur);
+      const parts = line.split(",");
+      if (parts.length < 5) { warnings.push("Malformed SUBJECT line: " + line); continue; }
+      const maxMarks = parseInt(parts[2]);
+      const qStart   = parseInt(parts[3]);
+      const qEnd     = parseInt(parts[4]);
+      cur = {
+        name:     parts[1].trim(),
+        maxMarks: isNaN(maxMarks) ? 0 : maxMarks,
+        qStart:   isNaN(qStart)   ? null : qStart,
+        qEnd:     isNaN(qEnd)     ? null : qEnd,
+        topics:   [],
+      };
+    } else if (line.startsWith("TOPIC,") && cur) {
+      const parts = line.split(",", 3);
+      if (parts.length < 3) continue;
+      const topicNo = parseInt(parts[1]);
+      if (isNaN(topicNo)) continue;
+      cur.topics.push({ topicNo, name: parts[2].trim() });
+    }
+  }
+  if (cur && cur.topics.length > 0) subjects.push(cur);
+  if (subjects.length === 0)
+    warnings.push("Embedded block found but no subjects parsed. Check block format.");
+  return { subjects, warnings };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ANSWER KEY PARSER
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -84,22 +217,41 @@ export const emptyPaper = (syllabus) => ({
  *   { type: "multi"|"single", booklets:{A:{},B:{},C:{},D:{}}, singleCode, singleAnswers, deletedQuestions, parseWarnings }
  */
 export function parseAnswerKeyText(rawText) {
-  const lines    = rawText.split("\n").map(l => l.trim()).filter(Boolean);
   const warnings = [];
 
+  // ── PRIMARY: Try embedded block (##PSC_AK_V1## or ##PSC_AK_SINGLE_V1##) ──
+  const multiBlock = extractEmbeddedBlock(rawText, "##PSC_AK_V1##");
+  if (multiBlock) {
+    const { booklets, deleted, warnings: bw } = parseAKMultiBlock(multiBlock);
+    const allWarnings = bw.length ? bw : warnings;
+    return {
+      type: "multi", booklets, deletedQuestions: deleted,
+      singleCode: null, singleAnswers: null,
+      parseWarnings: allWarnings,
+      source: "embedded",
+    };
+  }
+
+  const singleBlock = extractEmbeddedBlock(rawText, "##PSC_AK_SINGLE_V1##");
+  if (singleBlock) {
+    const parsed = parseAKSingleBlock(singleBlock);
+    if (parsed) {
+      return {
+        type: "single", singleCode: parsed.code, singleAnswers: parsed.answers,
+        booklets: null, deletedQuestions: { [parsed.code]: parsed.deleted },
+        parseWarnings: parsed.warnings,
+        source: "embedded",
+      };
+    }
+  }
+
+  // ── FALLBACK: Regex parser for non-embedded docx files ───────────────────
   // Detect format: multi-booklet has A B C D as consecutive column headers
-  // (within 8 chars of each other). The old loose regex incorrectly matched
-  // scattered answer values A...B...C...D across 200+ chars in single-booklet files.
-  // Single-booklet files have ALPHACODE X with one Answer column.
-  // Multi-booklet files have A B C D as tight column headers on the same row.
-  const isMulti = /\bA\b\s+\bB\b\s+\bC\b\s+\bD\b/.test(rawText.slice(0, 800));
+  const isMulti = /A\s+B\s+C\s+D/.test(rawText.slice(0, 800));
 
   if (isMulti) {
-    // ── Multi-booklet format ──────────────────────────────────────────────
     const booklets = { A: {}, B: {}, C: {}, D: {} };
     const deleted  = { A: [], B: [], C: [], D: [] };
-
-    // Match rows: number followed by 4 values (A/B/C/D/X)
     const rowRe = /(\d{1,3})\s+([ABCDX])\s+([ABCDX])\s+([ABCDX])\s+([ABCDX])/gi;
     let match;
     while ((match = rowRe.exec(rawText)) !== null) {
@@ -107,44 +259,38 @@ export function parseAnswerKeyText(rawText) {
       if (q < 1 || q > 100) continue;
       ["A","B","C","D"].forEach((bl, i) => {
         const ans = match[i + 2].toUpperCase();
-        booklets[bl][q] = ans;
+        booklets[bl][String(q)] = ans;
         if (ans === "X") deleted[bl].push(q);
       });
     }
-
     const counts = Object.values(booklets).map(b => Object.keys(b).length);
     if (Math.max(...counts) < 90)
-      warnings.push(`Only ${Math.max(...counts)} questions parsed. Expected ~100. Check file format.`);
-
-    return { type: "multi", booklets, deletedQuestions: deleted, singleCode: null, singleAnswers: null, parseWarnings: warnings };
-
+      warnings.push("Only " + Math.max(...counts) + " questions parsed. Expected ~100. Check file format.");
+    return {
+      type: "multi", booklets, deletedQuestions: deleted,
+      singleCode: null, singleAnswers: null,
+      parseWarnings: warnings, source: "regex",
+    };
   } else {
-    // ── Single-booklet format ─────────────────────────────────────────────
-    // Detect booklet code from header
-    const codeMatch = rawText.match(/ALPHACODE\s+([A-D])/i) || rawText.match(/BOOKLET\s+([A-D])\b/i);
+    const codeMatch = rawText.match(/ALPHACODE\s+([A-D])/i) || rawText.match(/BOOKLET\s+([A-D])/i);
     const singleCode = codeMatch ? codeMatch[1].toUpperCase() : "A";
-
     const answers = {};
     const deleted = [];
-
-    // Match rows: number followed by one answer value
-    const rowRe = /(\d{1,3})\s+([ABCDX])\b/gi;
+    const rowRe = /(\d{1,3})\s+([ABCDX])/gi;
     let match;
     while ((match = rowRe.exec(rawText)) !== null) {
       const q = parseInt(match[1]);
       if (q < 1 || q > 100) continue;
       const ans = match[2].toUpperCase();
-      answers[q] = ans;
+      answers[String(q)] = ans;
       if (ans === "X") deleted.push(q);
     }
-
     if (Object.keys(answers).length < 90)
-      warnings.push(`Only ${Object.keys(answers).length} questions parsed. Expected ~100.`);
-
+      warnings.push("Only " + Object.keys(answers).length + " questions parsed. Expected ~100.");
     return {
       type: "single", singleCode, singleAnswers: answers,
       booklets: null, deletedQuestions: { [singleCode]: deleted },
-      parseWarnings: warnings,
+      parseWarnings: warnings, source: "regex",
     };
   }
 }
@@ -173,6 +319,27 @@ export function parseAnswerKeyText(rawText) {
 export function parseSyllabusDocx(rawText) {
   const warnings = [];
 
+  // ── PRIMARY: Try embedded block ##PSC_SYL_V1## ───────────────────────────
+  const sylBlock = extractEmbeddedBlock(rawText, "##PSC_SYL_V1##");
+  if (sylBlock) {
+    const { subjects: embSubjects, warnings: bw } = parseSYLBlock(sylBlock);
+    if (embSubjects.length > 0) {
+      // Extract exam name from the raw text (first meaningful non-# line)
+      const cleanForName = rawText.replace(/&amp;/g,"&").replace(/&apos;/g,"'");
+      const examName = cleanForName.split("\n")
+        .map(l => l.trim())
+        .find(l => l.length > 3 && !l.startsWith("#") && !l.startsWith("##"))
+        || "Imported Syllabus";
+      const totalTopics = embSubjects.reduce((a,s) => a + s.topics.length, 0);
+      const totalMarks  = embSubjects.reduce((a,s) => a + s.maxMarks, 0);
+      const allWarnings = [...bw, ...warnings];
+      if (totalMarks > 0 && totalMarks !== 100)
+        allWarnings.push("Total marks sum to " + totalMarks + ", not 100. Verify subject marks.");
+      return { examName, subjects: embSubjects, totalTopics, totalMarks, warnings: allWarnings, source: "embedded" };
+    }
+  }
+
+  // ── FALLBACK: Regex parser for non-embedded docx files ───────────────────
   // Fix HTML entities present in XML-extracted text
   const clean = rawText
     .replace(/&amp;/g,  "&")
@@ -270,6 +437,17 @@ export function parseSyllabusDocx(rawText) {
 
 export function parseTopicMapDocx(rawText) {
   const warnings  = [];
+
+  // ── PRIMARY: Try embedded block ##PSC_TM_V1## ────────────────────────────
+  const tmBlock = extractEmbeddedBlock(rawText, "##PSC_TM_V1##");
+  if (tmBlock) {
+    const { qToTopicNo: embMap, warnings: bw } = parseTMBlock(tmBlock);
+    if (Object.keys(embMap).length > 0) {
+      return { qToTopicNo: embMap, tagged: Object.keys(embMap).length, warnings: bw, source: "embedded" };
+    }
+  }
+
+  // ── FALLBACK: Sliding window parser for non-embedded docx files ───────────
   const qToTopicNo = {};
 
   // Fix HTML entities
