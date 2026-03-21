@@ -103,7 +103,8 @@ function checkReminders() {
     });
 
     const ts = Date.now();
-    self.registration.showNotification("📚 PSC Tracker", {
+    const _notifTitle = alarm.label ? alarm.label : "📚 PSC Tracker";
+    self.registration.showNotification(_notifTitle, {
       body:             "Are you studying, " + _userName + "?",
       icon:             "/icons/icon-192x192.png",
       badge:            "/icons/icon-72x72.png",
