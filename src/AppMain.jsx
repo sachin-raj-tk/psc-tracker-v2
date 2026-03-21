@@ -46,6 +46,7 @@ import {
   SyncPanel,
   shareOnWhatsApp,
   autoSync,
+  checkRemindersNow,
 } from "./AppSync";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2107,6 +2108,15 @@ export default function App() {
     };
     window.addEventListener("psc-skip-reason", handler);
     return () => window.removeEventListener("psc-skip-reason", handler);
+  }, []);
+
+  // ── Persistent reminder interval — runs on ALL tabs, always ──────────────
+  // Lives in App root so it is never unmounted when user switches tabs.
+  // Checks every 60 seconds and fires notification if any alarm matches.
+  useEffect(() => {
+    checkRemindersNow(); // check immediately on mount (catches missed alarms)
+    const id = setInterval(checkRemindersNow, 60000);
+    return () => clearInterval(id);
   }, []);
 
   // ── Persistence ───────────────────────────────────────────────────────────

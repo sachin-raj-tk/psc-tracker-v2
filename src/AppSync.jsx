@@ -33,7 +33,7 @@ import {
  * Instructions in README.md under "Google Drive Sync Setup".
  * Leave as empty string to hide the Google Sign-in option.
  */
-const GOOGLE_CLIENT_ID = "523616350993-easu9f28e8g4prf0dtfvp95bk5obcbkc.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "";
 
 /** Google Drive AppData folder — only this app can read/write it */
 const DRIVE_FILE_NAME  = "psc-tracker-backup.json";
@@ -366,6 +366,67 @@ function postAlarmsToSW(alarms, firedToday) {
  * Multiple reminders per day, each toggleable individually.
  * Stored in localStorage, posted to service worker on every change.
  */
+/**
+ * checkRemindersNow — checks all enabled reminders against current time.
+ * Called every minute from App() root useEffect so it runs on ALL tabs,
+ * not just when Settings is open.
+ * Also called once on app mount to catch any missed reminders.
+ */
+export function checkRemindersNow() {
+  const ALL_DAYS = [0,1,2,3,4,5,6];
+  const now     = new Date();
+  const hhmm    = String(now.getHours()).padStart(2,"0") + ":" +
+                  String(now.getMinutes()).padStart(2,"0");
+  const jsDay   = now.getDay();
+  const dateStr = now.getFullYear() + "-" +
+                  String(now.getMonth()+1).padStart(2,"0") + "-" +
+                  String(now.getDate()).padStart(2,"0");
+  const current = loadFiredToday();
+  let changed   = false;
+
+  for (const alarm of loadReminders()) {
+    if (!alarm.enabled) continue;
+    if (alarm.time !== hhmm) continue;
+    const days = alarm.days || ALL_DAYS;
+    if (!days.includes(jsDay)) continue;
+    const key = dateStr + "_" + alarm.time;
+    if (current[key]) continue;
+    current[key] = true;
+    changed = true;
+
+    const title = alarm.label || "📚 PSC Tracker";
+    const body  = "Are you studying, Sachin?";
+    const ts    = Date.now();
+
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      if (navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.ready.then(reg => {
+          reg.showNotification(title, {
+            body,
+            icon:               "/icons/icon-192x192.png",
+            badge:              "/icons/icon-72x72.png",
+            tag:                "study-reminder-" + alarm.id,
+            requireInteraction: true,
+            data:               { timestamp: ts },
+          });
+        }).catch(() => {
+          new Notification(title, { body, icon: "/icons/icon-192x192.png" });
+        });
+      } else {
+        new Notification(title, { body, icon: "/icons/icon-192x192.png" });
+      }
+    } else {
+      window.dispatchEvent(new CustomEvent("psc-in-app-reminder",
+        { detail: { timestamp: ts, alarmId: alarm.id } }));
+    }
+  }
+
+  if (changed) {
+    saveFiredToday(current);
+    postAlarmsToSW(loadReminders(), current);
+  }
+}
+
 export function StudyReminders() {
   const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const ALL_DAYS  = [0,1,2,3,4,5,6];
@@ -385,65 +446,9 @@ export function StudyReminders() {
   );
   const [permError,  setPermError]  = useState("");
 
-  // ── In-app interval: check every minute ─────────────────────────────────
-  useEffect(() => {
-    const check = () => {
-      const now     = new Date();
-      const hhmm    = String(now.getHours()).padStart(2,"0") + ":" +
-                      String(now.getMinutes()).padStart(2,"0");
-      const jsDay   = now.getDay();
-      const dateStr = now.getFullYear() + "-" +
-                      String(now.getMonth()+1).padStart(2,"0") + "-" +
-                      String(now.getDate()).padStart(2,"0");
-      const current = loadFiredToday();
-      let changed   = false;
-      for (const alarm of loadReminders()) {
-        if (!alarm.enabled) continue;
-        if (alarm.time !== hhmm) continue;
-        const days = alarm.days || ALL_DAYS;
-        if (!days.includes(jsDay)) continue;
-        const key = dateStr + "_" + alarm.time;
-        if (current[key]) continue;
-        current[key] = true;
-        changed = true;
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-          // Use SW registration.showNotification for reliable PWA notifications
-          const ts = Date.now();
-          // Use label as notification title if set (e.g. "Morning Study")
-          const title = alarm.label || "📚 PSC Tracker";
-          const body  = "Are you studying, Sachin?";
-          if (navigator.serviceWorker?.controller) {
-            navigator.serviceWorker.ready.then(reg => {
-              reg.showNotification(title, {
-                body:               body,
-                icon:               "/icons/icon-192x192.png",
-                badge:              "/icons/icon-72x72.png",
-                tag:                "study-reminder-" + alarm.id,
-                requireInteraction: true,
-                data:               { timestamp: ts },
-              });
-            }).catch(() => {
-              new Notification(title, { body, icon: "/icons/icon-192x192.png" });
-            });
-          } else {
-            new Notification(title, { body, icon: "/icons/icon-192x192.png" });
-          }
-        } else {
-          // No notification permission — show in-app prompt instead
-          window.dispatchEvent(new CustomEvent("psc-in-app-reminder",
-            { detail: { timestamp: Date.now(), alarmId: alarm.id } }));
-        }
-      }
-      if (changed) {
-        saveFiredToday(current);
-        setFiredToday({ ...current });
-        postAlarmsToSW(loadReminders(), current);
-      }
-    };
-    check();
-    const id = setInterval(check, 60000);
-    return () => clearInterval(id);
-  }, []);
+  // ── Reminder interval lives in App root (see checkRemindersNow) ──────────
+  // StudyReminders only manages UI — the interval that fires notifications
+  // is started by App() on mount so it persists across all tab switches.
 
   // SW message listener
   useEffect(() => {
