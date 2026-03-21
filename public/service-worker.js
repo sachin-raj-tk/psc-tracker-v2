@@ -76,6 +76,9 @@ function checkReminders() {
   for (const alarm of _alarms) {
     if (!alarm.enabled) continue;
     if (alarm.time !== timeStr) continue;
+    const days  = alarm.days || [0,1,2,3,4,5,6];
+    const jsDay = new Date().getDay();
+    if (!days.includes(jsDay)) continue;
     const key = dateStr + "_" + alarm.time;
     if (_firedToday[key]) continue;
 
