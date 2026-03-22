@@ -717,15 +717,42 @@ export function ContentReader({ content, onClose }) {
  * Topic tag and question text/explanation are editable inline.
  */
 function QuestionViewer({ paper, syllabus, onUpdateTopicTag, onUpdateQText, onClose }) {
-  const [selected, setSelected]   = useState(null); // qStr of open question
-  const [editText, setEditText]   = useState("");
-  const [editExp,  setEditExp]    = useState("");
-  const [editingField, setEditingField] = useState(null); // "text" | "explanation" | null
+  const [selected,     setSelected]     = useState(null);
+  const [editText,     setEditText]     = useState("");
+  const [editExp,      setEditExp]      = useState("");
+  const [editingField, setEditingField] = useState(null);
+  const [filter,       setFilter]       = useState("all");
 
   const pq       = paper.computed?.perQuestion || {};
   const qs       = paper.questions || {};
   const omr      = paper.omr || {};
   const topicOpts = buildTopicOptions(syllabus);
+
+  const FILTERS = [
+    { id: "all",         label: "All" },
+    { id: "correct",     label: "Correct" },
+    { id: "wrong",       label: "Wrong" },
+    { id: "ng_correct",  label: "Non-guess ✓" },
+    { id: "ng_wrong",    label: "Non-guess ✗" },
+    { id: "g_correct",   label: "Guess ✓" },
+    { id: "g_wrong",     label: "Guess ✗" },
+    { id: "unattempted", label: "Unattempted" },
+  ];
+
+  const matchesFilter = (qStr) => {
+    const r  = pq[qStr]?.result;
+    const ig = omr[qStr]?.isGuess;
+    if (filter === "correct")     return r === "correct";
+    if (filter === "wrong")       return r === "wrong";
+    if (filter === "ng_correct")  return r === "correct" && !ig;
+    if (filter === "ng_wrong")    return r === "wrong"   && !ig;
+    if (filter === "g_correct")   return r === "correct" &&  ig;
+    if (filter === "g_wrong")     return r === "wrong"   &&  ig;
+    if (filter === "unattempted") return r === "unattempted" || (!r && r !== "deleted");
+    return true;
+  };
+
+  const filteredQs = Array.from({ length: 100 }, (_, i) => String(i + 1)).filter(matchesFilter);
 
   // Colour for each question result badge
   const qColor = (qStr) => {
@@ -769,46 +796,67 @@ function QuestionViewer({ paper, syllabus, onUpdateTopicTag, onUpdateQText, onCl
     <>
       <Modal title={"Questions — " + (paper.name || "Paper")} onClose={onClose} extraWide>
 
+        {/* Filter dropdown + count */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+          <select value={filter} onChange={e => setFilter(e.target.value)}
+            style={{ ...inputStyle, fontSize: 12, padding: "5px 8px", width: "auto" }}>
+            {FILTERS.map(f => (
+              <option key={f.id} value={f.id}>{f.label}</option>
+            ))}
+          </select>
+          <span style={{ fontSize: 11, color: T.text3 }}>
+            {filteredQs.length} question{filteredQs.length !== 1 ? "s" : ""}
+          </span>
+          {!Object.keys(qs).length && (
+            <span style={{ fontSize: 11, color: T.orange }}>
+              ⚠ No explanations uploaded
+            </span>
+          )}
+        </div>
+
         {/* Legend */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 14, fontSize: 11, color: T.text3, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 12, marginBottom: 12, fontSize: 11, color: T.text3, flexWrap: "wrap" }}>
           {[["✓", T.green, "Correct"], ["✗", T.red, "Wrong"], ["—", T.text3, "Unattempted"], ["⊘", T.text3, "Deleted"]].map(([icon, col, label]) => (
             <span key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ color: col, fontWeight: 700 }}>{icon}</span> {label}
             </span>
           ))}
-          {!Object.keys(qs).length && (
-            <span style={{ color: T.orange }}>⚠ No explanations uploaded yet — tap Content tab to upload</span>
-          )}
         </div>
 
-        {/* Question grid — 10 per row */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-          {Array.from({ length: 100 }, (_, i) => String(i + 1)).map(qStr => {
-            const col  = qColor(qStr);
-            const icon = qIcon(qStr);
-            const hasExp = !!qs[qStr];
-            return (
-              <button key={qStr} onClick={() => openQuestion(qStr)}
-                style={{
-                  width: 44, height: 40, borderRadius: 6, cursor: "pointer",
-                  border: "1px solid " + col + "66",
-                  background: col + "18",
-                  display: "flex", flexDirection: "column",
-                  alignItems: "center", justifyContent: "center", gap: 1,
-                  position: "relative",
-                }}>
-                <span style={{ fontSize: 10, color: T.text3, lineHeight: 1 }}>Q{qStr}</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: col, lineHeight: 1 }}>{icon}</span>
-                {hasExp && (
-                  <div style={{
-                    position: "absolute", top: 2, right: 2,
-                    width: 5, height: 5, borderRadius: "50%", background: T.accent,
-                  }} />
-                )}
-              </button>
-            );
-          })}
-        </div>
+        {/* Question grid — filtered */}
+        {filteredQs.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "32px 0", color: T.text3, fontSize: 13 }}>
+            No questions match this filter.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            {filteredQs.map(qStr => {
+              const col    = qColor(qStr);
+              const icon   = qIcon(qStr);
+              const hasExp = !!qs[qStr];
+              return (
+                <button key={qStr} onClick={() => openQuestion(qStr)}
+                  style={{
+                    width: 44, height: 40, borderRadius: 6, cursor: "pointer",
+                    border: "1px solid " + col + "66",
+                    background: col + "18",
+                    display: "flex", flexDirection: "column",
+                    alignItems: "center", justifyContent: "center", gap: 1,
+                    position: "relative",
+                  }}>
+                  <span style={{ fontSize: 10, color: T.text3, lineHeight: 1 }}>Q{qStr}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: col, lineHeight: 1 }}>{icon}</span>
+                  {hasExp && (
+                    <div style={{
+                      position: "absolute", top: 2, right: 2,
+                      width: 5, height: 5, borderRadius: "50%", background: T.accent,
+                    }} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div style={{ fontSize: 11, color: T.text3, textAlign: "center" }}>
           Tap any question to view details · Blue dot = explanation available
@@ -993,23 +1041,33 @@ function QuestionViewer({ paper, syllabus, onUpdateTopicTag, onUpdateQText, onCl
                 )}
               </div>
 
-              {/* Prev / Next navigation */}
-              <div style={{ display: "flex", gap: 10, justifyContent: "center", paddingTop: 12 }}>
-                <button
-                  onClick={() => { const n = Math.max(1, parseInt(selected) - 1); openQuestion(String(n)); }}
-                  disabled={parseInt(selected) <= 1}
-                  style={{ ...btnGhost, fontSize: 13, padding: "8px 20px",
-                    opacity: parseInt(selected) <= 1 ? 0.4 : 1 }}>
-                  ← Prev
-                </button>
-                <button
-                  onClick={() => { const n = Math.min(100, parseInt(selected) + 1); openQuestion(String(n)); }}
-                  disabled={parseInt(selected) >= 100}
-                  style={{ ...btnGhost, fontSize: 13, padding: "8px 20px",
-                    opacity: parseInt(selected) >= 100 ? 0.4 : 1 }}>
-                  Next →
-                </button>
-              </div>
+              {/* Prev / Next — filter-aware */}
+              {(() => {
+                const idx  = filteredQs.indexOf(selected);
+                const hasPrev = idx > 0;
+                const hasNext = idx < filteredQs.length - 1;
+                return (
+                  <div style={{ display: "flex", gap: 10, justifyContent: "center", paddingTop: 12 }}>
+                    <button
+                      onClick={() => hasPrev && openQuestion(filteredQs[idx - 1])}
+                      disabled={!hasPrev}
+                      style={{ ...btnGhost, fontSize: 13, padding: "8px 20px",
+                        opacity: hasPrev ? 1 : 0.4 }}>
+                      ← Prev
+                    </button>
+                    <span style={{ fontSize: 11, color: T.text3, alignSelf: "center" }}>
+                      {idx + 1} / {filteredQs.length}
+                    </span>
+                    <button
+                      onClick={() => hasNext && openQuestion(filteredQs[idx + 1])}
+                      disabled={!hasNext}
+                      style={{ ...btnGhost, fontSize: 13, padding: "8px 20px",
+                        opacity: hasNext ? 1 : 0.4 }}>
+                          Next →
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
