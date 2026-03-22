@@ -324,15 +324,6 @@ export function parseAnswerKeyText(rawText) {
     };
   }
 }
-    if (Object.keys(answers).length < 90)
-      warnings.push("Only " + Object.keys(answers).length + " questions parsed. Expected ~100.");
-    return {
-      type: "single", singleCode, singleAnswers: answers,
-      booklets: null, deletedQuestions: { [singleCode]: deleted },
-      parseWarnings: warnings, source: "regex",
-    };
-  }
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SYLLABUS DOCX PARSER
