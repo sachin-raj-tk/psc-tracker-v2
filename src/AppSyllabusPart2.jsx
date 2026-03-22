@@ -818,7 +818,7 @@ function QuestionViewer({ paper, syllabus, onUpdateTopicTag, onUpdateQText, onCl
       {/* Question detail popup */}
       {selected && (
         <div style={{
-          position: "fixed", inset: 0, zIndex: 700,
+          position: "fixed", inset: 0, zIndex: 1100,
           background: "rgba(0,0,0,0.7)",
           display: "flex", alignItems: "flex-end", justifyContent: "center",
         }} onClick={() => { if (!editingField) setSelected(null); }}>
