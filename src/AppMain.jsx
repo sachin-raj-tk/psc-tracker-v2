@@ -2405,6 +2405,7 @@ export default function App() {
           onEdit={() => setModal({ type: "editPaper", paper: modal.paper })}
           onShare={() => shareOnWhatsApp(modal.paper, activeSyl, streak?.currentStreak)}
           onClose={() => setModal(null)}
+          onSaveSilent={handleSavePaperSilent}
         />
       )}
 

@@ -68,6 +68,7 @@ export const emptyPaper = (syllabus) => ({
   computed:    null,
   guesses:     { ff_correct: "", ff_wrong: "", wg_correct: "", wg_wrong: "" },
   content:     { text: "", docxExtracted: "", docxName: "", pdfData: "", pdfName: "" },
+  questions:   null,
 });
 
 
@@ -530,6 +531,85 @@ export function parseTopicMapDocx(rawText) {
     warnings.push(`Only ${tagged} questions tagged. Verify the docx format.`);
 
   return { qToTopicNo, tagged, warnings };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXPLANATION DOCX PARSER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Parse a question+explanation docx.
+ *
+ * Expected format per question:
+ *   ##PSC_Q<n>##
+ *   Question text (one or more lines)
+ *
+ *   A. Option A
+ *   B. Option B
+ *   C. Option C
+ *   D. Option D
+ *
+ *   ##ANS## B
+ *   ##EXP##
+ *   Explanation text (one or more lines/paragraphs)
+ *   ##END##
+ *
+ * Returns:
+ *   { questions: { "1": {text, options:{A,B,C,D}, answer, explanation}, ... }, warnings, count }
+ */
+export function parseExplanationDocx(rawText) {
+  const warnings = [];
+  const questions = {};
+
+  // Fix HTML entities
+  const clean = rawText
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">").replace(/&apos;/g, "'").replace(/&quot;/g, '"');
+
+  // Split on question markers ##PSC_Q<n>##
+  const blocks = clean.split(/##PSC_Q(\d+)##/);
+  // blocks[0] = text before first marker (skip)
+  // then pairs: [qno, body, qno, body, ...]
+  let i = 1;
+  while (i < blocks.length - 1) {
+    const qno  = parseInt(blocks[i]);
+    const body = blocks[i + 1] || "";
+    i += 2;
+
+    if (isNaN(qno) || qno < 1 || qno > 100) continue;
+
+    // Answer
+    const ansMatch = body.match(/##ANS##\s*([ABCDX])/);
+    const answer   = ansMatch ? ansMatch[1].trim() : "";
+
+    // Explanation (between ##EXP## and ##END##)
+    const expMatch   = body.match(/##EXP##([\s\S]*?)##END##/);
+    const explanation = expMatch ? expMatch[1].trim() : "";
+
+    // Question text: everything before first option line or ##ANS##
+    const qBody = body.split(/
+[ABCD]\.|
+##ANS##/)[0].trim();
+
+    // Options A–D
+    const options = {};
+    let optMatch;
+    const optRe = /^([ABCD])\.\s*(.+)$/gm;
+    while ((optMatch = optRe.exec(body)) !== null) {
+      options[optMatch[1]] = optMatch[2].trim();
+    }
+
+    questions[String(qno)] = { text: qBody, options, answer, explanation };
+  }
+
+  const count = Object.keys(questions).length;
+  if (count === 0)
+    warnings.push("No questions found. Check the ##PSC_Q<n>## format.");
+  else if (count < 50)
+    warnings.push("Only " + count + " questions parsed. Expected ~100.");
+
+  return { questions, count, warnings };
 }
 
 

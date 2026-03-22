@@ -15,7 +15,7 @@ import {
 import {
   buildTopicOptions, emptyOMR, emptyPaper, OPTS,
   parseSyllabusDocx, parseTopicMapDocx,
-  parseAnswerKeyText,
+  parseAnswerKeyText, parseExplanationDocx,
 } from "./AppSyllabusPart1a";
 
 // Re-export components that live in Part1a so AppSyllabusPart2 only

@@ -21,6 +21,7 @@ import {
 import {
   emptyPaper, emptyOMR,
   buildTopicOptions, OPTS,
+  parseExplanationDocx,
 } from "./AppSyllabusPart1a";
 
 import {
@@ -34,6 +35,7 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
   const [errors, setErrors]     = useState({});
   const [dirty, setDirty]       = useState(false);
   const [showOMR, setShowOMR]   = useState(false);
+  const [showQViewer, setShowQViewer] = useState(false);
 
   // Autosave draft to sessionStorage every 5 seconds
   useEffect(() => {
@@ -137,6 +139,38 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
     } catch (err) {
       alert("Could not read docx: " + (err.message || "unknown error"));
     }
+  };
+
+  // Explanation docx handler — parses ##PSC_Q## format, stores only JSON, discards binary
+  const explRef = useRef();
+  const handleExplDocx = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !file.name.endsWith(".docx")) return;
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const JSZip = window.JSZip;
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const docXml = await zip.file("word/document.xml").async("string");
+      const textRuns = [];
+      const re2 = new RegExp("<w:t[^>]*>([^<]+)</" + "w:t>", "g");
+      let m2;
+      while ((m2 = re2.exec(docXml)) !== null) textRuns.push(m2[1]);
+      const rawText = textRuns.join("\n");
+      const { questions, count, warnings } = parseExplanationDocx(rawText);
+      if (count === 0) {
+        alert("No questions found in this file. Check the ##PSC_Q## format.");
+        return;
+      }
+      // Store parsed JSON only — discard the docx binary entirely
+      setForm(f => ({ ...f, questions }));
+      setDirty(true);
+      if (warnings.length > 0) alert("Parsed with warnings:\n" + warnings.join("\n"));
+      else alert("✓ " + count + " questions parsed and stored.");
+    } catch (err) {
+      alert("Could not read explanation docx: " + (err.message || "unknown error"));
+    }
+    // Reset input so same file can be re-uploaded
+    e.target.value = "";
   };
 
   return (
@@ -433,6 +467,50 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
               All three can coexist for the same paper.
             </p>
 
+            {/* Explanation Docx upload — parsed into structured questions */}
+            <div style={{ marginBottom: 20, padding: "12px 16px",
+              background: T.surface, borderRadius: 8,
+              border: "1px solid " + (form.questions ? T.green + "66" : T.border) }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>
+                📖 Question Explanations
+              </div>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 10, lineHeight: 1.6 }}>
+                Upload the explanation docx generated from Claude AI using the master prompt.
+                The document is parsed and discarded — only the structured question data is stored.
+              </div>
+              <input ref={explRef} type="file" accept=".docx" style={{ display: "none" }} onChange={handleExplDocx} />
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <button onClick={() => explRef.current?.click()}
+                  style={{ ...btnPrimary(T.accent), fontSize: 12 }}>
+                  {form.questions
+                    ? "↺ Re-upload Explanations"
+                    : "⬆ Upload Explanation Docx"}
+                </button>
+                {form.questions && (
+                  <>
+                    <span style={{ fontSize: 11, color: T.green }}>
+                      ✓ {Object.keys(form.questions).length} questions stored
+                    </span>
+                    <button onClick={() => {
+                        if (window.confirm("Remove all stored question explanations?")) {
+                          setForm(f => ({ ...f, questions: null }));
+                          setDirty(true);
+                        }
+                      }}
+                      style={{ ...btnGhost, fontSize: 11, color: T.red, borderColor: T.red + "44" }}>
+                      Remove
+                    </button>
+                    {form.computed && (
+                      <button onClick={() => setShowQViewer(true)}
+                        style={{ ...btnPrimary(T.purple), fontSize: 12 }}>
+                        👁 View Questions
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
             {/* Text editor */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 11, color: T.text3, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>
@@ -450,7 +528,7 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
             <div style={{ marginBottom: 16 }}>
               <input ref={docxRef} type="file" accept=".docx" style={{ display: "none" }} onChange={handleDocx} />
               <button onClick={() => docxRef.current?.click()} style={btnPrimary(T.purple)}>
-                {form.content?.docxName ? `✓ Replace Docx (${form.content.docxName})` : "Upload Explanation Docx"}
+                {form.content?.docxName ? "✓ Replace Docx (" + form.content.docxName + ")" : "Upload Content Docx"}
               </button>
               {form.content?.docxName && (
                 <button
@@ -469,7 +547,7 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
             <div>
               <input ref={pdfRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={handlePDF} />
               <button onClick={() => pdfRef.current?.click()} style={btnPrimary(T.teal)}>
-                {form.content?.pdfName ? `✓ Replace PDF (${form.content.pdfName})` : "Upload PDF"}
+                {form.content?.pdfName ? "✓ Replace PDF (" + form.content.pdfName + ")" : "Upload PDF"}
               </button>
               {form.content?.pdfName && (
                 <button
@@ -497,6 +575,31 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
           </button>
         </div>
       </Modal>
+
+      {/* Question Viewer overlay */}
+      {showQViewer && (
+        <QuestionViewer
+          paper={form}
+          syllabus={syllabus}
+          onUpdateTopicTag={(qStr, topicId) => {
+            const newOMR = { ...form.omr };
+            newOMR[qStr] = { ...(newOMR[qStr] || {}), topicId };
+            const updated = { ...form, omr: newOMR };
+            setForm(updated);
+            setDirty(true);
+            if (onSaveSilent) onSaveSilent(updated);
+          }}
+          onUpdateQText={(qStr, field, value) => {
+            const newQuestions = { ...form.questions };
+            newQuestions[qStr] = { ...(newQuestions[qStr] || {}), [field]: value };
+            const updated = { ...form, questions: newQuestions };
+            setForm(updated);
+            setDirty(true);
+            if (onSaveSilent) onSaveSilent(updated);
+          }}
+          onClose={() => setShowQViewer(false)}
+        />
+      )}
 
       {/* OMR overlay */}
       {showOMR && (
@@ -602,6 +705,319 @@ export function ContentReader({ content, onClose }) {
   );
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// QUESTION VIEWER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * QuestionViewer — scrollable list of all 100 questions with OMR results.
+ * Tapping a question opens a detail popup showing the question text,
+ * options (with correct/my answer highlighted), explanation, and topic tag.
+ * Topic tag and question text/explanation are editable inline.
+ */
+function QuestionViewer({ paper, syllabus, onUpdateTopicTag, onUpdateQText, onClose }) {
+  const [selected, setSelected]   = useState(null); // qStr of open question
+  const [editText, setEditText]   = useState("");
+  const [editExp,  setEditExp]    = useState("");
+  const [editingField, setEditingField] = useState(null); // "text" | "explanation" | null
+
+  const pq       = paper.computed?.perQuestion || {};
+  const qs       = paper.questions || {};
+  const omr      = paper.omr || {};
+  const topicOpts = buildTopicOptions(syllabus);
+
+  // Colour for each question result badge
+  const qColor = (qStr) => {
+    const r = pq[qStr]?.result;
+    if (r === "correct")     return T.green;
+    if (r === "wrong")       return T.red;
+    if (r === "unattempted") return T.text3;
+    if (r === "deleted")     return T.text3;
+    return T.border2;
+  };
+
+  const qIcon = (qStr) => {
+    const r = pq[qStr]?.result;
+    if (r === "correct")     return "✓";
+    if (r === "wrong")       return "✗";
+    if (r === "unattempted") return "—";
+    if (r === "deleted")     return "⊘";
+    return "?";
+  };
+
+  const openQuestion = (qStr) => {
+    setSelected(qStr);
+    setEditText(qs[qStr]?.text || "");
+    setEditExp(qs[qStr]?.explanation || "");
+    setEditingField(null);
+  };
+
+  const saveTextEdit = () => {
+    if (editingField === "text")
+      onUpdateQText(selected, "text", editText);
+    if (editingField === "explanation")
+      onUpdateQText(selected, "explanation", editExp);
+    setEditingField(null);
+  };
+
+  const selQ   = selected ? qs[selected]   : null;
+  const selPQ  = selected ? pq[selected]   : null;
+  const selOMR = selected ? omr[selected]  : null;
+
+  return (
+    <>
+      <Modal title={"Questions — " + (paper.name || "Paper")} onClose={onClose} extraWide>
+
+        {/* Legend */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 14, fontSize: 11, color: T.text3, flexWrap: "wrap" }}>
+          {[["✓", T.green, "Correct"], ["✗", T.red, "Wrong"], ["—", T.text3, "Unattempted"], ["⊘", T.text3, "Deleted"]].map(([icon, col, label]) => (
+            <span key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ color: col, fontWeight: 700 }}>{icon}</span> {label}
+            </span>
+          ))}
+          {!Object.keys(qs).length && (
+            <span style={{ color: T.orange }}>⚠ No explanations uploaded yet — tap Content tab to upload</span>
+          )}
+        </div>
+
+        {/* Question grid — 10 per row */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+          {Array.from({ length: 100 }, (_, i) => String(i + 1)).map(qStr => {
+            const col  = qColor(qStr);
+            const icon = qIcon(qStr);
+            const hasExp = !!qs[qStr];
+            return (
+              <button key={qStr} onClick={() => openQuestion(qStr)}
+                style={{
+                  width: 44, height: 40, borderRadius: 6, cursor: "pointer",
+                  border: "1px solid " + col + "66",
+                  background: col + "18",
+                  display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center", gap: 1,
+                  position: "relative",
+                }}>
+                <span style={{ fontSize: 10, color: T.text3, lineHeight: 1 }}>Q{qStr}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: col, lineHeight: 1 }}>{icon}</span>
+                {hasExp && (
+                  <div style={{
+                    position: "absolute", top: 2, right: 2,
+                    width: 5, height: 5, borderRadius: "50%", background: T.accent,
+                  }} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ fontSize: 11, color: T.text3, textAlign: "center" }}>
+          Tap any question to view details · Blue dot = explanation available
+        </div>
+      </Modal>
+
+      {/* Question detail popup */}
+      {selected && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 700,
+          background: "rgba(0,0,0,0.7)",
+          display: "flex", alignItems: "flex-end", justifyContent: "center",
+        }} onClick={() => { if (!editingField) setSelected(null); }}>
+          <div style={{
+            background: "#0d1117", borderRadius: "16px 16px 0 0",
+            width: "100%", maxWidth: 600,
+            maxHeight: "85vh", display: "flex", flexDirection: "column",
+            border: "1px solid " + T.border,
+            boxShadow: "0 -8px 32px rgba(0,0,0,0.5)",
+          }} onClick={e => e.stopPropagation()}>
+
+            {/* Detail header */}
+            <div style={{
+              padding: "14px 16px 10px",
+              borderBottom: "1px solid " + T.border,
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 15, fontWeight: 800, color: T.text }}>
+                  Question {selected}
+                </span>
+                <span style={{
+                  fontSize: 13, fontWeight: 700, color: qColor(selected),
+                  background: qColor(selected) + "22",
+                  border: "1px solid " + qColor(selected) + "44",
+                  borderRadius: 5, padding: "2px 8px",
+                }}>
+                  {qIcon(selected)} {selPQ?.result || "no data"}
+                </span>
+                {selOMR?.isGuess && (
+                  <span style={{ fontSize: 11, color: T.orange, background: T.orange + "22",
+                    border: "1px solid " + T.orange + "44", borderRadius: 5, padding: "2px 8px" }}>
+                    🎲 Guess
+                  </span>
+                )}
+              </div>
+              <button onClick={() => setSelected(null)}
+                style={{ ...btnGhost, padding: "4px 10px", fontSize: 13 }}>✕</button>
+            </div>
+
+            {/* Scrollable body */}
+            <div style={{ overflowY: "auto", padding: "14px 16px", flex: 1 }}>
+
+              {/* My answer vs correct */}
+              <div style={{ display: "flex", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 12 }}>
+                  <span style={{ color: T.text3 }}>My answer: </span>
+                  <span style={{ fontWeight: 700, fontFamily: "monospace",
+                    color: selPQ?.result === "correct" ? T.green : T.red }}>
+                    {selOMR?.answer || "—"}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  <span style={{ color: T.text3 }}>Correct: </span>
+                  <span style={{ fontWeight: 700, fontFamily: "monospace", color: T.green }}>
+                    {selPQ?.keyAns || "—"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Topic tag — editable */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: T.text3, marginBottom: 4,
+                  textTransform: "uppercase", letterSpacing: "0.08em" }}>Topic Tag</div>
+                <SearchSelect
+                  options={topicOpts}
+                  value={selOMR?.topicId || null}
+                  onChange={topicId => onUpdateTopicTag(selected, topicId)}
+                  placeholder="Tag a topic..."
+                />
+              </div>
+
+              {/* Question text */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between",
+                  alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                    Question
+                  </div>
+                  {editingField === "text" ? (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={saveTextEdit}
+                        style={{ ...btnPrimary(T.green), fontSize: 11, padding: "3px 10px" }}>Save</button>
+                      <button onClick={() => setEditingField(null)}
+                        style={{ ...btnGhost, fontSize: 11, padding: "3px 10px" }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setEditingField("text")}
+                      style={{ ...btnGhost, fontSize: 11, padding: "3px 10px" }}>✎ Edit</button>
+                  )}
+                </div>
+                {editingField === "text" ? (
+                  <textarea value={editText} onChange={e => setEditText(e.target.value)}
+                    rows={4} style={{ ...inputStyle, fontSize: 13, resize: "vertical", lineHeight: 1.7 }} />
+                ) : (
+                  <div style={{ fontSize: 13, color: T.text, lineHeight: 1.8,
+                    background: T.surface, borderRadius: 6, padding: "10px 12px",
+                    border: "1px solid " + T.border, whiteSpace: "pre-wrap" }}>
+                    {selQ?.text || <span style={{ color: T.text3, fontStyle: "italic" }}>No question text stored</span>}
+                  </div>
+                )}
+              </div>
+
+              {/* Options */}
+              {selQ?.options && Object.keys(selQ.options).length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: T.text3, textTransform: "uppercase",
+                    letterSpacing: "0.08em", marginBottom: 6 }}>Options</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {["A","B","C","D"].map(opt => {
+                      const isMyAns  = selOMR?.answer === opt;
+                      const isCorrect = selPQ?.keyAns === opt;
+                      const bg = isCorrect ? T.green + "22"
+                               : isMyAns  ? T.red   + "22"
+                               : "transparent";
+                      const border = isCorrect ? T.green + "88"
+                                   : isMyAns  ? T.red   + "88"
+                                   : T.border;
+                      const textCol = isCorrect ? T.green
+                                    : isMyAns  ? T.red
+                                    : T.text2;
+                      return (
+                        <div key={opt} style={{
+                          display: "flex", gap: 10, alignItems: "flex-start",
+                          padding: "8px 10px", borderRadius: 6,
+                          background: bg, border: "1px solid " + border,
+                        }}>
+                          <span style={{ fontWeight: 700, fontFamily: "monospace",
+                            color: textCol, minWidth: 20, flexShrink: 0 }}>
+                            {opt}.
+                          </span>
+                          <span style={{ fontSize: 13, color: textCol, lineHeight: 1.5 }}>
+                            {selQ.options[opt]}
+                          </span>
+                          {isCorrect && <span style={{ marginLeft: "auto", color: T.green, fontSize: 12, flexShrink: 0 }}>✓ Correct</span>}
+                          {isMyAns && !isCorrect && <span style={{ marginLeft: "auto", color: T.red, fontSize: 12, flexShrink: 0 }}>← My answer</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Explanation */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between",
+                  alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, color: T.text3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                    Explanation
+                  </div>
+                  {editingField === "explanation" ? (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={saveTextEdit}
+                        style={{ ...btnPrimary(T.green), fontSize: 11, padding: "3px 10px" }}>Save</button>
+                      <button onClick={() => setEditingField(null)}
+                        style={{ ...btnGhost, fontSize: 11, padding: "3px 10px" }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setEditingField("explanation")}
+                      style={{ ...btnGhost, fontSize: 11, padding: "3px 10px" }}>✎ Edit</button>
+                  )}
+                </div>
+                {editingField === "explanation" ? (
+                  <textarea value={editExp} onChange={e => setEditExp(e.target.value)}
+                    rows={5} style={{ ...inputStyle, fontSize: 13, resize: "vertical", lineHeight: 1.7 }} />
+                ) : (
+                  <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.8,
+                    background: T.surface, borderRadius: 6, padding: "10px 12px",
+                    border: "1px solid " + T.border, whiteSpace: "pre-wrap" }}>
+                    {selQ?.explanation || <span style={{ color: T.text3, fontStyle: "italic" }}>No explanation stored</span>}
+                  </div>
+                )}
+              </div>
+
+              {/* Prev / Next navigation */}
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", paddingTop: 12 }}>
+                <button
+                  onClick={() => { const n = Math.max(1, parseInt(selected) - 1); openQuestion(String(n)); }}
+                  disabled={parseInt(selected) <= 1}
+                  style={{ ...btnGhost, fontSize: 13, padding: "8px 20px",
+                    opacity: parseInt(selected) <= 1 ? 0.4 : 1 }}>
+                  ← Prev
+                </button>
+                <button
+                  onClick={() => { const n = Math.min(100, parseInt(selected) + 1); openQuestion(String(n)); }}
+                  disabled={parseInt(selected) >= 100}
+                  style={{ ...btnGhost, fontSize: 13, padding: "8px 20px",
+                    opacity: parseInt(selected) >= 100 ? 0.4 : 1 }}>
+                  Next →
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PAPER DETAIL VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -610,8 +1026,9 @@ export function ContentReader({ content, onClose }) {
  * PaperDetail — read-only summary of a saved paper.
  * Shows subject breakdown, guess analysis, OMR results, topic performance.
  */
-export function PaperDetail({ paper, syllabus, onEdit, onClose, onShare }) {
-  const [showContent, setShowContent] = useState(false);
+export function PaperDetail({ paper, syllabus, onEdit, onClose, onShare, onSaveSilent }) {
+  const [showContent,  setShowContent]  = useState(false);
+  const [showQViewer,  setShowQViewer]  = useState(false);
   const neg = syllabus.negMark || 1/3;
   const c   = paper.computed;
 
@@ -662,7 +1079,13 @@ export function PaperDetail({ paper, syllabus, onEdit, onClose, onShare }) {
               </div>
             )}
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {paper.questions && paper.computed && (
+              <button onClick={() => setShowQViewer(true)}
+                style={{ ...btnGhost, color: T.accent2, borderColor: T.accent + "55" }}>
+                📖 Questions
+              </button>
+            )}
             {hasContent && <button onClick={() => setShowContent(true)} style={btnGhost}>📄 Content</button>}
             <button onClick={onShare} style={btnGhost}>📤 Share</button>
             <button onClick={onEdit}  style={btnGhost}>Edit</button>
@@ -919,6 +1342,27 @@ export function PaperDetail({ paper, syllabus, onEdit, onClose, onShare }) {
 
       {showContent && paper.content && (
         <ContentReader content={paper.content} onClose={() => setShowContent(false)} />
+      )}
+      {showQViewer && (
+        <QuestionViewer
+          paper={paper}
+          syllabus={syllabus}
+          onUpdateTopicTag={(qStr, topicId) => {
+            if (onSaveSilent) {
+              const newOMR = { ...paper.omr };
+              newOMR[qStr] = { ...(newOMR[qStr] || {}), topicId };
+              onSaveSilent({ ...paper, omr: newOMR });
+            }
+          }}
+          onUpdateQText={(qStr, field, value) => {
+            if (onSaveSilent) {
+              const newQs = { ...paper.questions };
+              newQs[qStr] = { ...(newQs[qStr] || {}), [field]: value };
+              onSaveSilent({ ...paper, questions: newQs });
+            }
+          }}
+          onClose={() => setShowQViewer(false)}
+        />
       )}
     </>
   );
