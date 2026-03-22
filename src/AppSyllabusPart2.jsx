@@ -85,6 +85,7 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
   // Called only when user taps "Close OMR" — closes the sheet
   const handleOMRClose = () => {
     setShowOMR(false);
+    window.__pscAutoSync?.();
   };
 
   const answered   = Object.values(form.omr || {}).filter(e => e?.answer).length;
@@ -375,6 +376,7 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
               });
               setDirty(true);
               setTab("omr");
+              window.__pscAutoSync?.();
             }}
             onClose={() => setTab("omr")}
           />

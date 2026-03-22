@@ -246,15 +246,22 @@ export function parseAnswerKeyText(rawText) {
   }
 
   // ── FALLBACK: Regex parser for non-embedded docx files ───────────────────
-  // Detect format: multi-booklet has A B C D as consecutive column headers
-  const isMulti = /A\s+B\s+C\s+D/.test(rawText.slice(0, 800));
+  // Normalise: strip bold markers, non-breaking spaces, backslash escapes
+  const norm = rawText
+    .replace(/\*+/g, " ")
+    .replace(/\u00a0/g, " ")
+    .replace(/\\/g, " ")
+    .replace(/  +/g, " ");
+
+  // Detect multi-booklet: A B C D as tight consecutive column headers
+  const isMulti = /\bA\b\s+\bB\b\s+\bC\b\s+\bD\b/.test(norm.slice(0, 800));
 
   if (isMulti) {
     const booklets = { A: {}, B: {}, C: {}, D: {} };
     const deleted  = { A: [], B: [], C: [], D: [] };
     const rowRe = /(\d{1,3})\s+([ABCDX])\s+([ABCDX])\s+([ABCDX])\s+([ABCDX])/gi;
     let match;
-    while ((match = rowRe.exec(rawText)) !== null) {
+    while ((match = rowRe.exec(norm)) !== null) {
       const q = parseInt(match[1]);
       if (q < 1 || q > 100) continue;
       ["A","B","C","D"].forEach((bl, i) => {
@@ -263,28 +270,60 @@ export function parseAnswerKeyText(rawText) {
         if (ans === "X") deleted[bl].push(q);
       });
     }
-    const counts = Object.values(booklets).map(b => Object.keys(b).length);
-    if (Math.max(...counts) < 90)
-      warnings.push("Only " + Math.max(...counts) + " questions parsed. Expected ~100. Check file format.");
+    const counts   = Object.values(booklets).map(b => Object.keys(b).length);
+    const maxCount = Math.max(...counts);
+    // Auto-fallback: if multi found very few results try single-booklet
+    if (maxCount < 10) {
+      warnings.push("Multi-booklet parse found only " + maxCount + " questions — retrying as single-booklet.");
+      const codeMatch = norm.match(/ALPHACODE\s+([A-D])/i) || norm.match(/BOOKLET\s+([A-D])/i);
+      const singleCode = codeMatch ? codeMatch[1].toUpperCase() : "A";
+      const answers = {}; const delS = [];
+      const reS = /(\d{1,3})\s+([ABCDX])\b/gi; let m2;
+      while ((m2 = reS.exec(norm)) !== null) {
+        const q2 = parseInt(m2[1]);
+        if (q2 < 1 || q2 > 100) continue;
+        const a2 = m2[2].toUpperCase();
+        answers[String(q2)] = a2;
+        if (a2 === "X") delS.push(q2);
+      }
+      if (Object.keys(answers).length >= maxCount) {
+        if (Object.keys(answers).length < 90)
+          warnings.push("Only " + Object.keys(answers).length + " questions parsed after retry.");
+        return {
+          type: "single", singleCode, singleAnswers: answers,
+          booklets: null, deletedQuestions: { [singleCode]: delS },
+          parseWarnings: warnings, source: "regex-fallback",
+        };
+      }
+    }
+    if (maxCount < 90)
+      warnings.push("Only " + maxCount + " questions parsed. Expected ~100. Check file format.");
     return {
       type: "multi", booklets, deletedQuestions: deleted,
       singleCode: null, singleAnswers: null,
       parseWarnings: warnings, source: "regex",
     };
   } else {
-    const codeMatch = rawText.match(/ALPHACODE\s+([A-D])/i) || rawText.match(/BOOKLET\s+([A-D])/i);
+    const codeMatch = norm.match(/ALPHACODE\s+([A-D])/i) || norm.match(/BOOKLET\s+([A-D])/i);
     const singleCode = codeMatch ? codeMatch[1].toUpperCase() : "A";
-    const answers = {};
-    const deleted = [];
-    const rowRe = /(\d{1,3})\s+([ABCDX])/gi;
-    let match;
-    while ((match = rowRe.exec(rawText)) !== null) {
+    const answers = {}; const deleted = [];
+    const rowRe = /(\d{1,3})\s+([ABCDX])\b/gi; let match;
+    while ((match = rowRe.exec(norm)) !== null) {
       const q = parseInt(match[1]);
       if (q < 1 || q > 100) continue;
       const ans = match[2].toUpperCase();
       answers[String(q)] = ans;
       if (ans === "X") deleted.push(q);
     }
+    if (Object.keys(answers).length < 90)
+      warnings.push("Only " + Object.keys(answers).length + " questions parsed. Expected ~100.");
+    return {
+      type: "single", singleCode, singleAnswers: answers,
+      booklets: null, deletedQuestions: { [singleCode]: deleted },
+      parseWarnings: warnings, source: "regex",
+    };
+  }
+}
     if (Object.keys(answers).length < 90)
       warnings.push("Only " + Object.keys(answers).length + " questions parsed. Expected ~100.");
     return {

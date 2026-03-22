@@ -33,7 +33,7 @@ import {
  * Instructions in README.md under "Google Drive Sync Setup".
  * Leave as empty string to hide the Google Sign-in option.
  */
-const GOOGLE_CLIENT_ID = "523616350993-easu9f28e8g4prf0dtfvp95bk5obcbkc.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "";
 
 /** Google Drive AppData folder — only this app can read/write it */
 const DRIVE_FILE_NAME  = "psc-tracker-backup.json";
@@ -213,6 +213,12 @@ export function useGoogleSync(getAllData, restoreAllData) {
     window.__pscSyncNow = token ? syncNow : null;
     return () => { window.__pscSyncNow = null; };
   }, [token, syncNow]);
+
+  // Also expose autoSync globally for components that cannot import it
+  useEffect(() => {
+    window.__pscAutoSync = token ? autoSync : null;
+    return () => { window.__pscAutoSync = null; };
+  }, [token]);
 
   return { isSignedIn, user, signIn, signOut, syncNow, lastSynced, syncing, error };
 }
@@ -434,9 +440,19 @@ export function checkRemindersNow() {
     }
   }
 
-  if (changed) {
-    saveFiredToday(current);
-    postAlarmsToSW(loadReminders(), current);
+  // Prune firedToday — keep only last 7 days to prevent localStorage bloat
+  const pruned = {};
+  for (let d = 0; d < 7; d++) {
+    const dt = new Date(Date.now() - d * 86400000);
+    const ds = dt.getFullYear() + "-" +
+               String(dt.getMonth()+1).padStart(2,"0") + "-" +
+               String(dt.getDate()).padStart(2,"0");
+    Object.keys(current).forEach(k => { if (k.startsWith(ds)) pruned[k] = true; });
+  }
+
+  if (changed || Object.keys(pruned).length < Object.keys(current).length) {
+    saveFiredToday(pruned);
+    postAlarmsToSW(loadReminders(), pruned);
   }
 }
 
