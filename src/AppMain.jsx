@@ -438,7 +438,7 @@ function Dashboard({ papers, syllabus, streak, logs, onSaveLog, onAddPaper, onNa
     </div>
   );
 
-  const [dashTip, setDashTip] = useState(null);
+  const [dashTip, setDashTip] = useState(null); // { id, name, x, y }
 
   // Sort by date for trend chart
   const sorted = [...papers].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
@@ -478,44 +478,29 @@ function Dashboard({ papers, syllabus, streak, logs, onSaveLog, onAddPaper, onNa
           </div>
         ) : (
           <div>
-            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch",
-              overflowY: "visible" }}>
+            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               <div style={{
-                display: "flex", alignItems: "flex-end", gap: 4,
-                height: 90, paddingTop: 36,
+                display: "flex", alignItems: "flex-end", gap: 4, height: 90,
                 minWidth: sorted.length * 44 + "px",
-                overflow: "visible",
               }}>
                 {sorted.map((p, i) => {
                   const sc  = p.computed?.totalMarks ?? 0;
                   const h   = Math.max(6, (sc / maxSc) * 80);
                   const col = scoreColor(pct(sc, 100));
-                  const isActive = dashTip === p.id;
                   return (
                     <div key={p.id}
                       onClick={e => {
                         e.stopPropagation();
-                        setDashTip(p.id);
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setDashTip({ id: p.id, name: p.name || p.code || ("Paper " + (i+1)),
+                          x: rect.left + rect.width / 2, y: rect.top });
                         clearTimeout(window.__dashTipTimer);
                         window.__dashTipTimer = setTimeout(() => setDashTip(null), 2000);
                       }}
                       style={{ flex: "0 0 40px", display: "flex", flexDirection: "column",
-                        alignItems: "center", gap: 3, position: "relative", cursor: "pointer" }}>
-                      {isActive && (
-                        <div style={{
-                          position: "absolute", bottom: "calc(100% + 4px)", left: "50%",
-                          transform: "translateX(-50%)",
-                          background: "#1c2333", border: "1px solid " + T.border,
-                          borderRadius: 6, padding: "5px 10px", zIndex: 10,
-                          whiteSpace: "nowrap", fontSize: 11, color: T.text,
-                          boxShadow: "0 2px 10px rgba(0,0,0,0.6)",
-                          pointerEvents: "none",
-                        }}>
-                          {p.name || p.code || ("Paper " + (i + 1))}
-                        </div>
-                      )}
+                        alignItems: "center", gap: 3, cursor: "pointer" }}>
                       <div style={{ width: "100%", height: h,
-                        background: col + "88",
+                        background: (dashTip?.id === p.id) ? col : col + "88",
                         borderRadius: "3px 3px 0 0",
                         border: "1px solid " + col }} />
                       <span style={{ fontSize: 8, color: T.text3, width: 40,
@@ -534,6 +519,22 @@ function Dashboard({ papers, syllabus, streak, logs, onSaveLog, onAddPaper, onNa
                 {(scores[scores.length-1] - scores[0]).toFixed(1)}
               </strong>
             </div>
+          </div>
+        )}
+        {/* Fixed tooltip — rendered outside scroll container to avoid clipping */}
+        {dashTip && (
+          <div style={{
+            position: "fixed",
+            left: Math.min(dashTip.x, window.innerWidth - 170),
+            top: Math.max(dashTip.y - 44, 60),
+            transform: "translateX(-50%)",
+            background: "#1c2333", border: "1px solid " + T.border,
+            borderRadius: 7, padding: "6px 12px", zIndex: 2000,
+            whiteSpace: "nowrap", fontSize: 12, color: T.text,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.7)",
+            pointerEvents: "none",
+          }}>
+            {dashTip.name}
           </div>
         )}
       </Section>
@@ -1375,7 +1376,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
 
       {/* ── Score Trend ── */}
       <Section title="📈 Score Trend" accent={T.accent}>
-        <div style={{ position: "relative", overflow: "visible" }}>
+        <div style={{ position: "relative" }}>
           {cutoff && (
             <div style={{
               position: "absolute", left: 0, right: 0,
@@ -1387,45 +1388,30 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
               </span>
             </div>
           )}
-          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch",
-              overflowY: "visible" }}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               <div style={{
-                display: "flex", alignItems: "flex-end", gap: 4,
-                height: 100, paddingTop: 36,
+                display: "flex", alignItems: "flex-end", gap: 4, height: 100,
                 position: "relative", minWidth: byDate.length * 44 + "px",
-                overflow: "visible",
               }}>
                 {byDate.map((p, i) => {
                   const sc     = p.computed?.totalMarks ?? 0;
                   const maxSc  = Math.max(...byDate.map(x => x.computed?.totalMarks ?? 0), 1);
                   const h      = Math.max(6, (sc / maxSc) * 80);
                   const col    = scoreColor(pct(sc, 100));
-                  const isActive = analTip === p.id;
                   return (
                     <div key={p.id}
                       onClick={e => {
                         e.stopPropagation();
-                        setAnalTip(p.id);
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setAnalTip({ id: p.id, name: p.name || p.code || ("Paper " + (i+1)),
+                          x: rect.left + rect.width / 2, y: rect.top });
                         clearTimeout(window.__analTipTimer);
                         window.__analTipTimer = setTimeout(() => setAnalTip(null), 2000);
                       }}
                       style={{ flex: "0 0 40px", display: "flex", flexDirection: "column",
-                        alignItems: "center", gap: 3, position: "relative", cursor: "pointer" }}>
-                      {isActive && (
-                        <div style={{
-                          position: "absolute", bottom: "calc(100% + 4px)", left: "50%",
-                          transform: "translateX(-50%)",
-                          background: "#1c2333", border: "1px solid " + T.border,
-                          borderRadius: 6, padding: "5px 10px", zIndex: 10,
-                          whiteSpace: "nowrap", fontSize: 11, color: T.text,
-                          boxShadow: "0 2px 10px rgba(0,0,0,0.6)",
-                          pointerEvents: "none",
-                        }}>
-                          {p.name || p.code || ("Paper " + (i + 1))}
-                        </div>
-                      )}
+                        alignItems: "center", gap: 3, cursor: "pointer" }}>
                       <div style={{ width: "100%", height: h,
-                        background: col + "88",
+                        background: (analTip?.id === p.id) ? col : col + "88",
                         borderRadius: "3px 3px 0 0",
                         border: "1px solid " + col }} />
                       <span style={{ fontSize: 8, color: T.text3, width: 40,
@@ -1438,6 +1424,22 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
               </div>
             </div>
         </div>
+        {/* Fixed tooltip — outside scroll container */}
+        {analTip && (
+          <div style={{
+            position: "fixed",
+            left: Math.min(analTip.x, window.innerWidth - 170),
+            top: Math.max(analTip.y - 44, 60),
+            transform: "translateX(-50%)",
+            background: "#1c2333", border: "1px solid " + T.border,
+            borderRadius: 7, padding: "6px 12px", zIndex: 2000,
+            whiteSpace: "nowrap", fontSize: 12, color: T.text,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.7)",
+            pointerEvents: "none",
+          }}>
+            {analTip.name}
+          </div>
+        )}
       </Section>
 
       {/* ── Subject-wise Average ── */}
