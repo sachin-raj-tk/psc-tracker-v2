@@ -478,10 +478,13 @@ function Dashboard({ papers, syllabus, streak, logs, onSaveLog, onAddPaper, onNa
           </div>
         ) : (
           <div>
-            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch",
+              overflowY: "visible" }}>
               <div style={{
-                display: "flex", alignItems: "flex-end", gap: 4, height: 90,
+                display: "flex", alignItems: "flex-end", gap: 4,
+                height: 90, paddingTop: 36,
                 minWidth: sorted.length * 44 + "px",
+                overflow: "visible",
               }}>
                 {sorted.map((p, i) => {
                   const sc  = p.computed?.totalMarks ?? 0;
@@ -1372,7 +1375,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
 
       {/* ── Score Trend ── */}
       <Section title="📈 Score Trend" accent={T.accent}>
-        <div style={{ position: "relative" }}>
+        <div style={{ position: "relative", overflow: "visible" }}>
           {cutoff && (
             <div style={{
               position: "absolute", left: 0, right: 0,
@@ -1384,10 +1387,13 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
               </span>
             </div>
           )}
-          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch",
+              overflowY: "visible" }}>
               <div style={{
-                display: "flex", alignItems: "flex-end", gap: 4, height: 100,
+                display: "flex", alignItems: "flex-end", gap: 4,
+                height: 100, paddingTop: 36,
                 position: "relative", minWidth: byDate.length * 44 + "px",
+                overflow: "visible",
               }}>
                 {byDate.map((p, i) => {
                   const sc     = p.computed?.totalMarks ?? 0;
