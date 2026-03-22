@@ -28,7 +28,7 @@ import {
   SyllabusImporter, TopicMapImporter,
 } from "./AppSyllabusPart1b";
 
-export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave, onClose }) {
+export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave, onSaveSilent, onClose }) {
   const [form, setForm]         = useState(initial || emptyPaper(syllabus));
   const [tab, setTab]           = useState("meta");
   const [errors, setErrors]     = useState({});
@@ -70,16 +70,20 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
   };
 
   // Called on every OMR change (answer tap, guess toggle, topic tag)
-  // Only updates form state — does NOT call onSave (which would close the paper modal)
-  // Data is safe in form state and will be saved when user clicks Save Paper
+  // Updates form state. When computed score is present (Calculate was clicked),
+  // also auto-saves to IndexedDB via onSaveSilent (does NOT close modal).
   const handleOMRUpdate = ({ omr, computed, bookletCode }) => {
-    setForm(f => ({ ...f, omr, computed, bookletCode }));
+    const updated = { ...form, omr, computed, bookletCode };
+    setForm(updated);
     setDirty(true);
-    // Write to sessionStorage as safety net so OMR data survives accidental close
+    // Write to sessionStorage as safety net
     try {
-      const draft = { ...form, omr, computed, bookletCode };
-      sessionStorage.setItem("psc-draft-paper", JSON.stringify(draft));
+      sessionStorage.setItem("psc-draft-paper", JSON.stringify(updated));
     } catch { /* ignore quota errors */ }
+    // Auto-save to IndexedDB whenever score is calculated so closing is safe
+    if (computed && onSaveSilent) {
+      onSaveSilent(updated);
+    }
   };
 
   // Called only when user taps "Close OMR" — closes the sheet

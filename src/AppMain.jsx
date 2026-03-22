@@ -2185,6 +2185,16 @@ export default function App() {
     autoSync();
   };
 
+  // Silent save — persists to IndexedDB without closing the modal or navigating
+  const handleSavePaperSilent = async (paper) => {
+    const upd = papers.find(p => p.id === paper.id)
+      ? papers.map(p => p.id === paper.id ? paper : p)
+      : [...papers, paper];
+    await savePapers(upd);
+    showToast("Score saved ✓");
+    window.__pscAutoSync?.();
+  };
+
   const handleDeletePaper = async (id) => {
     await savePapers(papers.filter(p => p.id !== id));
     showToast("Paper deleted");
@@ -2375,6 +2385,7 @@ export default function App() {
           syllabi={syllabi}
           onChangeSyllabus={setActiveSylId}
           onSave={handleSavePaper}
+          onSaveSilent={handleSavePaperSilent}
           onClose={() => setModal(null)}
         />
       )}
@@ -2383,6 +2394,7 @@ export default function App() {
           syllabus={activeSyl}
           initial={modal.paper}
           onSave={handleSavePaper}
+          onSaveSilent={handleSavePaperSilent}
           onClose={() => setModal(null)}
         />
       )}
