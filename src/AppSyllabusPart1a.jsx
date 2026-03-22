@@ -588,9 +588,7 @@ export function parseExplanationDocx(rawText) {
     const explanation = expMatch ? expMatch[1].trim() : "";
 
     // Question text: everything before first option line or ##ANS##
-    const qBody = body.split(/
-[ABCD]\.|
-##ANS##/)[0].trim();
+    const qBody = body.split(/\n[ABCD]\.\s|\n##ANS##/)[0].trim();
 
     // Options A–D
     const options = {};
