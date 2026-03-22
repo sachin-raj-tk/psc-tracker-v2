@@ -1380,6 +1380,10 @@ export function StudyTimer() {
     // Store frozen remaining seconds so PiP displays a fixed paused time
     window.__pipTimerState.running       = false;
     window.__pipTimerState.remainingSecs = remaining; // frozen — does not count down
+    // Pause the PiP video element so system media controls show paused state
+    if (pipRef.current && !pipRef.current.paused) {
+      pipRef.current.pause();
+    }
     releaseWakeLock();
   };
 
@@ -1404,6 +1408,10 @@ export function StudyTimer() {
     setDone(false);
     startTick();
     acquireWakeLock();
+    // Resume the PiP video element so system media controls show playing state
+    if (pipRef.current && pipRef.current.paused) {
+      pipRef.current.play().catch(() => {});
+    }
   };
 
   const handleReset = () => {

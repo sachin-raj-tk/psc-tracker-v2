@@ -1136,10 +1136,15 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
         const pq  = sp.computed?.perQuestion || {};
 
         // Classify questions
-        const ngWrong  = Object.keys(pq).filter(q => pq[q].result==="wrong"  && !pq[q].isGuess).map(Number).sort((a,b)=>a-b);
-        const gWrong   = Object.keys(pq).filter(q => pq[q].result==="wrong"  &&  pq[q].isGuess).map(Number).sort((a,b)=>a-b);
-        const ngCorrect= Object.keys(pq).filter(q => pq[q].result==="correct"&& !pq[q].isGuess).length;
-        const gCorrect = Object.keys(pq).filter(q => pq[q].result==="correct"&&  pq[q].isGuess).length;
+        const ngWrong    = Object.keys(pq).filter(q => pq[q].result==="wrong"       && !pq[q].isGuess).map(Number).sort((a,b)=>a-b);
+        const gWrong     = Object.keys(pq).filter(q => pq[q].result==="wrong"       &&  pq[q].isGuess).map(Number).sort((a,b)=>a-b);
+        const ngCorrect  = Object.keys(pq).filter(q => pq[q].result==="correct"     && !pq[q].isGuess).length;
+        const gCorrect   = Object.keys(pq).filter(q => pq[q].result==="correct"     &&  pq[q].isGuess).length;
+        // Unattempted: explicitly marked unattempted OR any Q 1-100 not in perQuestion
+        const unattemptedQs = Array.from({length:100},(_,i)=>i+1).filter(q => {
+          const entry = pq[String(q)];
+          return !entry || entry.result === "unattempted" || entry.result == null;
+        }).sort((a,b)=>a-b);
 
         // Guess totals from bySubject
         let ffC=0,ffW=0,wgC=0,wgW=0;
@@ -1313,6 +1318,14 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
                           {"By guessing — "+gWrong.length+" wrong"}
                         </div>
                         <QBadges qs={gWrong} color={T.orange} />
+                      </div>
+                    )}
+                    {unattemptedQs.length > 0 && (
+                      <div style={{marginTop:12}}>
+                        <div style={{fontSize:11,color:T.text3,marginBottom:4}}>
+                          {"Unattempted — "+unattemptedQs.length+" questions"}
+                        </div>
+                        <QBadges qs={unattemptedQs} color={T.text3} />
                       </div>
                     )}
                   </div>
