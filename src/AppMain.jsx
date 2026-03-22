@@ -477,7 +477,7 @@ function Dashboard({ papers, syllabus, streak, logs, onSaveLog, onAddPaper, onNa
             Add more papers to see your score trend over time.
           </div>
         ) : (
-          <div onClick={() => setDashTip(null)}>
+          <div>
             <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               <div style={{
                 display: "flex", alignItems: "flex-end", gap: 4, height: 90,
@@ -490,34 +490,31 @@ function Dashboard({ papers, syllabus, streak, logs, onSaveLog, onAddPaper, onNa
                   const isActive = dashTip === p.id;
                   return (
                     <div key={p.id}
-                      onClick={e => { e.stopPropagation(); setDashTip(isActive ? null : p.id); }}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setDashTip(p.id);
+                        clearTimeout(window.__dashTipTimer);
+                        window.__dashTipTimer = setTimeout(() => setDashTip(null), 2000);
+                      }}
                       style={{ flex: "0 0 40px", display: "flex", flexDirection: "column",
                         alignItems: "center", gap: 3, position: "relative", cursor: "pointer" }}>
-                      {/* Tooltip */}
                       {isActive && (
                         <div style={{
-                          position: "absolute", bottom: "100%", left: "50%",
+                          position: "absolute", bottom: "calc(100% + 4px)", left: "50%",
                           transform: "translateX(-50%)",
                           background: "#1c2333", border: "1px solid " + T.border,
-                          borderRadius: 6, padding: "5px 8px", zIndex: 10,
+                          borderRadius: 6, padding: "5px 10px", zIndex: 10,
                           whiteSpace: "nowrap", fontSize: 11, color: T.text,
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+                          boxShadow: "0 2px 10px rgba(0,0,0,0.6)",
                           pointerEvents: "none",
                         }}>
-                          <div style={{ fontWeight: 700, color: col }}>{sc.toFixed(2)}/100</div>
-                          <div style={{ color: T.text2, maxWidth: 160,
-                            overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {p.name || p.code || ("Paper " + (i + 1))}
-                          </div>
-                          {p.date && <div style={{ color: T.text3, fontSize: 10 }}>{fmtDate(p.date)}</div>}
+                          {p.name || p.code || ("Paper " + (i + 1))}
                         </div>
                       )}
-                      <span style={{ fontSize: 9, color: col, fontFamily: "monospace" }}>{sc.toFixed(0)}</span>
                       <div style={{ width: "100%", height: h,
-                        background: isActive ? col : col + "88",
+                        background: col + "88",
                         borderRadius: "3px 3px 0 0",
-                        border: "1px solid " + col,
-                        outline: isActive ? "2px solid " + col : "none" }} />
+                        border: "1px solid " + col }} />
                       <span style={{ fontSize: 8, color: T.text3, width: 40,
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "center" }}>
                         {p.name || p.code || ("P" + (i + 1))}
@@ -1387,8 +1384,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
               </span>
             </div>
           )}
-          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}
-              onClick={() => setAnalTip(null)}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               <div style={{
                 display: "flex", alignItems: "flex-end", gap: 4, height: 100,
                 position: "relative", minWidth: byDate.length * 44 + "px",
@@ -1401,34 +1397,31 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
                   const isActive = analTip === p.id;
                   return (
                     <div key={p.id}
-                      onClick={e => { e.stopPropagation(); setAnalTip(isActive ? null : p.id); }}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setAnalTip(p.id);
+                        clearTimeout(window.__analTipTimer);
+                        window.__analTipTimer = setTimeout(() => setAnalTip(null), 2000);
+                      }}
                       style={{ flex: "0 0 40px", display: "flex", flexDirection: "column",
                         alignItems: "center", gap: 3, position: "relative", cursor: "pointer" }}>
-                      {/* Tooltip */}
                       {isActive && (
                         <div style={{
-                          position: "absolute", bottom: "100%", left: "50%",
+                          position: "absolute", bottom: "calc(100% + 4px)", left: "50%",
                           transform: "translateX(-50%)",
                           background: "#1c2333", border: "1px solid " + T.border,
-                          borderRadius: 6, padding: "5px 8px", zIndex: 10,
+                          borderRadius: 6, padding: "5px 10px", zIndex: 10,
                           whiteSpace: "nowrap", fontSize: 11, color: T.text,
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+                          boxShadow: "0 2px 10px rgba(0,0,0,0.6)",
                           pointerEvents: "none",
                         }}>
-                          <div style={{ fontWeight: 700, color: col }}>{sc.toFixed(2)}/100</div>
-                          <div style={{ color: T.text2, maxWidth: 160,
-                            overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {p.name || p.code || ("Paper " + (i + 1))}
-                          </div>
-                          {p.date && <div style={{ color: T.text3, fontSize: 10 }}>{fmtDate(p.date)}</div>}
+                          {p.name || p.code || ("Paper " + (i + 1))}
                         </div>
                       )}
-                      <span style={{ fontSize: 9, color: col, fontFamily: "monospace" }}>{sc.toFixed(0)}</span>
                       <div style={{ width: "100%", height: h,
-                        background: isActive ? col : col + "88",
+                        background: col + "88",
                         borderRadius: "3px 3px 0 0",
-                        border: "1px solid " + col,
-                        outline: isActive ? "2px solid " + col : "none" }} />
+                        border: "1px solid " + col }} />
                       <span style={{ fontSize: 8, color: T.text3, width: 40,
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "center" }}>
                         {p.name || ("P" + (i + 1))}
