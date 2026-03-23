@@ -1020,6 +1020,220 @@ function TopicQuestionViewer({ topic, papers, syllabus, onClose }) {
   );
 }
 
+
+/**
+ * QuestionListViewer — generic question viewer that accepts a pre-built
+ * items array. Used by single-paper Q-badge clicks, subject drilldowns,
+ * and unattempted-by-subject rows.
+ *
+ * items: Array of { paperId, paperName, qStr, result, myAns, keyAns,
+ *                   isGuess, text, options, explanation }
+ * title: string shown in header
+ */
+function QuestionListViewer({ items, title, onClose }) {
+  const [idx, setIdx] = useState(0);
+
+  const safeIdx = Math.min(idx, Math.max(0, items.length - 1));
+  const item    = items[safeIdx];
+
+  const qColor = (r) => {
+    if (r === "correct")     return T.green;
+    if (r === "wrong")       return T.red;
+    if (r === "unattempted") return T.text3;
+    if (r === "deleted")     return T.text3;
+    return T.border2;
+  };
+  const qIcon = (r) => {
+    if (r === "correct")     return "✓";
+    if (r === "wrong")       return "✗";
+    if (r === "unattempted") return "—";
+    if (r === "deleted")     return "⊘";
+    return "?";
+  };
+
+  if (items.length === 0) {
+    return (
+      <div style={{
+        position: "fixed", inset: 0, zIndex: 1100,
+        background: "rgba(0,0,0,0.7)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }} onClick={onClose}>
+        <div style={{ background: "#0d1117", borderRadius: 12, padding: 32,
+          border: "1px solid " + T.border, textAlign: "center" }}
+          onClick={e => e.stopPropagation()}>
+          <div style={{ fontSize: 14, color: T.text, marginBottom: 12 }}>
+            No question data available.
+          </div>
+          <button onClick={onClose} style={{ ...btnGhost, fontSize: 13 }}>Close</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 1100,
+      background: "rgba(0,0,0,0.7)",
+      display: "flex", flexDirection: "column",
+    }} onClick={onClose}>
+      <div style={{
+        background: "#0d1117", borderRadius: "16px 16px 0 0",
+        marginTop: "auto", width: "100%", maxWidth: 600, alignSelf: "center",
+        maxHeight: "88vh", display: "flex", flexDirection: "column",
+        border: "1px solid " + T.border,
+        boxShadow: "0 -8px 32px rgba(0,0,0,0.5)",
+      }} onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{ padding: "12px 16px 10px",
+          borderBottom: "1px solid " + T.border, flexShrink: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between",
+            alignItems: "flex-start", gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: T.text, lineHeight: 1.3 }}>
+                {title}
+              </div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+                {items.length} question{items.length !== 1 ? "s" : ""}
+              </div>
+            </div>
+            <button onClick={onClose}
+              style={{ ...btnGhost, padding: "4px 10px", fontSize: 13, flexShrink: 0 }}>✕</button>
+          </div>
+          {/* Scrollable Q pills */}
+          <div style={{ display: "flex", gap: 5, overflowX: "auto",
+            WebkitOverflowScrolling: "touch", marginTop: 10, paddingBottom: 4 }}>
+            {items.map((it, i) => {
+              const col = qColor(it.result);
+              return (
+                <button key={it.paperId + "_" + it.qStr + "_" + i}
+                  onClick={() => setIdx(i)}
+                  style={{
+                    flexShrink: 0, padding: "3px 9px", borderRadius: 5, cursor: "pointer",
+                    border: "1px solid " + col + (safeIdx === i ? "ff" : "55"),
+                    background: safeIdx === i ? col + "33" : "transparent",
+                    color: col, fontSize: 11, fontWeight: safeIdx === i ? 700 : 400,
+                  }}>
+                  Q{it.qStr}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ overflowY: "auto", padding: "14px 16px", flex: 1 }}>
+
+          {/* Paper + result badge */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center",
+            flexWrap: "wrap", marginBottom: 12 }}>
+            <span style={{ fontSize: 11, color: T.text3, background: T.surface,
+              border: "1px solid " + T.border, borderRadius: 5, padding: "2px 8px" }}>
+              Q{item.qStr} · {item.paperName}
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: qColor(item.result),
+              background: qColor(item.result) + "22",
+              border: "1px solid " + qColor(item.result) + "44",
+              borderRadius: 5, padding: "2px 8px" }}>
+              {qIcon(item.result)} {item.result}
+            </span>
+            {item.isGuess && (
+              <span style={{ fontSize: 11, color: T.orange,
+                background: T.orange + "22", border: "1px solid " + T.orange + "44",
+                borderRadius: 5, padding: "2px 8px" }}>
+                🎲 Guess
+              </span>
+            )}
+          </div>
+
+          {/* My answer vs correct */}
+          <div style={{ display: "flex", gap: 16, marginBottom: 12, fontSize: 12 }}>
+            <span>
+              <span style={{ color: T.text3 }}>My answer: </span>
+              <strong style={{ fontFamily: "monospace",
+                color: item.result === "correct" ? T.green : T.red }}>
+                {item.myAns}
+              </strong>
+            </span>
+            <span>
+              <span style={{ color: T.text3 }}>Correct: </span>
+              <strong style={{ fontFamily: "monospace", color: T.green }}>{item.keyAns}</strong>
+            </span>
+          </div>
+
+          {/* Question text */}
+          {item.text ? (
+            <div style={{ fontSize: 13, color: T.text, lineHeight: 1.8,
+              background: T.surface, borderRadius: 6, padding: "10px 12px",
+              border: "1px solid " + T.border, marginBottom: 12, whiteSpace: "pre-wrap" }}>
+              {item.text}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic",
+              marginBottom: 12 }}>No question text stored.</div>
+          )}
+
+          {/* Options */}
+          {Object.keys(item.options || {}).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
+              {["A","B","C","D"].filter(opt => item.options[opt]).map(opt => {
+                const isMyAns   = item.myAns === opt;
+                const isCorrect = item.keyAns === opt;
+                const bg  = isCorrect ? T.green + "22" : isMyAns ? T.red + "22" : "transparent";
+                const bdr = isCorrect ? T.green + "88" : isMyAns ? T.red + "88" : T.border;
+                const col = isCorrect ? T.green : isMyAns ? T.red : T.text2;
+                return (
+                  <div key={opt} style={{ display: "flex", gap: 8, alignItems: "flex-start",
+                    padding: "7px 10px", borderRadius: 6,
+                    background: bg, border: "1px solid " + bdr }}>
+                    <span style={{ fontWeight: 700, fontFamily: "monospace",
+                      color: col, minWidth: 18, flexShrink: 0 }}>{opt}.</span>
+                    <span style={{ fontSize: 13, color: col, lineHeight: 1.5, flex: 1 }}>
+                      {item.options[opt]}
+                    </span>
+                    {isCorrect && <span style={{ color: T.green, fontSize: 11, flexShrink: 0 }}>✓</span>}
+                    {isMyAns && !isCorrect && <span style={{ color: T.red, fontSize: 11, flexShrink: 0 }}>←</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Explanation */}
+          <div style={{ fontSize: 11, color: T.text3, textTransform: "uppercase",
+            letterSpacing: "0.08em", marginBottom: 6 }}>Explanation</div>
+          <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.8,
+            background: T.surface, borderRadius: 6, padding: "10px 12px",
+            border: "1px solid " + T.border, whiteSpace: "pre-wrap" }}>
+            {item.explanation ||
+              <span style={{ color: T.text3, fontStyle: "italic" }}>No explanation stored.</span>}
+          </div>
+
+          {/* Prev / Next */}
+          <div style={{ display: "flex", gap: 10, justifyContent: "center",
+            alignItems: "center", paddingTop: 16 }}>
+            <button onClick={() => setIdx(i => Math.max(0, i - 1))}
+              disabled={safeIdx <= 0}
+              style={{ ...btnGhost, fontSize: 13, padding: "8px 20px",
+                opacity: safeIdx <= 0 ? 0.4 : 1 }}>
+              ← Prev
+            </button>
+            <span style={{ fontSize: 11, color: T.text3 }}>
+              {safeIdx + 1} / {items.length}
+            </span>
+            <button onClick={() => setIdx(i => Math.min(items.length - 1, i + 1))}
+              disabled={safeIdx >= items.length - 1}
+              style={{ ...btnGhost, fontSize: 13, padding: "8px 20px",
+                opacity: safeIdx >= items.length - 1 ? 0.4 : 1 }}>
+              Next →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Analytics — full analytics view.
  * Subject averages, weak/strong split, guess strategy,
@@ -1030,6 +1244,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
   const [dateTo,      setDateTo]      = useState("");
   const [analTip,     setAnalTip]     = useState(null);
   const [topicViewer, setTopicViewer] = useState(null); // topic object to drill into
+  const [qViewer,     setQViewer]     = useState(null); // { items, title } for QuestionListViewer
   const [editCutoff,  setEditCutoff]  = useState(false);
   const [cutoffInput, setCutoffInput] = useState(cutoff || "");
   const [analyticsSylId, setAnalyticsSylId] = useState(_syllabus.id);
@@ -1051,6 +1266,71 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
     if (dateTo   && p.date && p.date > dateTo)   return false;
     return true;
   });
+
+  // ── Item builders for QuestionListViewer ─────────────────────────────────
+  const buildTopicItems = (topicId) => {
+    const items = [];
+    for (const paper of papers) {
+      const omr = paper.omr || {};
+      const pq  = paper.computed?.perQuestion || {};
+      const qs  = paper.questions || {};
+      for (const qStr of Object.keys(omr).sort((a,b) => parseInt(a)-parseInt(b))) {
+        if ((omr[qStr] || {}).topicId === topicId) {
+          items.push({
+            paperId: paper.id, paperName: paper.name || paper.code || "Paper",
+            qStr, result: pq[qStr]?.result || "unattempted",
+            myAns: omr[qStr]?.answer || "—", keyAns: pq[qStr]?.keyAns || "—",
+            isGuess: omr[qStr]?.isGuess || false,
+            text: (qs[qStr] || {}).text || "", options: (qs[qStr] || {}).options || {},
+            explanation: (qs[qStr] || {}).explanation || "",
+          });
+        }
+      }
+    }
+    return items;
+  };
+
+  const buildSubjectItems = (subject, unattemptedOnly = false) => {
+    const range = subject.questionRange || {};
+    const start = range.start || 1;
+    const end   = range.end   || 5;
+    const items = [];
+    for (const paper of papers) {
+      const omr = paper.omr || {};
+      const pq  = paper.computed?.perQuestion || {};
+      const qs  = paper.questions || {};
+      for (let q = start; q <= end; q++) {
+        const qStr   = String(q);
+        const hasData = qStr in omr || qStr in pq;
+        if (!hasData) continue;
+        const result = pq[qStr]?.result || "unattempted";
+        if (unattemptedOnly && result !== "unattempted") continue;
+        items.push({
+          paperId: paper.id, paperName: paper.name || paper.code || "Paper",
+          qStr, result,
+          myAns: (omr[qStr] || {}).answer || "—", keyAns: pq[qStr]?.keyAns || "—",
+          isGuess: (omr[qStr] || {}).isGuess || false,
+          text: (qs[qStr] || {}).text || "", options: (qs[qStr] || {}).options || {},
+          explanation: (qs[qStr] || {}).explanation || "",
+        });
+      }
+    }
+    return items;
+  };
+
+  const buildSingleQItem = (paper, qStr) => {
+    const omr = paper.omr || {};
+    const pq  = paper.computed?.perQuestion || {};
+    const qs  = paper.questions || {};
+    return [{
+      paperId: paper.id, paperName: paper.name || paper.code || "Paper",
+      qStr, result: pq[qStr]?.result || "unattempted",
+      myAns: (omr[qStr] || {}).answer || "—", keyAns: pq[qStr]?.keyAns || "—",
+      isGuess: (omr[qStr] || {}).isGuess || false,
+      text: (qs[qStr] || {}).text || "", options: (qs[qStr] || {}).options || {},
+      explanation: (qs[qStr] || {}).explanation || "",
+    }];
+  };
 
   if (!filtered.length) return (
     <div style={{ ...cardStyle, textAlign: "center", padding: 50, color: T.text3 }}>
@@ -1443,17 +1723,23 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
         const ffNet = ffC - ffW*neg;
         const wgNet = wgC - wgW*neg;
 
-        const QBadges = ({qs, color}) => qs.length===0 ? (
+        const QBadges = ({qs, color, paper}) => qs.length===0 ? (
           <span style={{fontSize:11,color:T.text3}}>None</span>
         ) : (
           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
             {qs.map(q=>(
-              <span key={q} style={{
-                fontSize:11,fontFamily:"monospace",fontWeight:700,
-                color,background:color+"18",
-                border:"1px solid "+color+"44",
-                borderRadius:4,padding:"2px 6px",
-              }}>{"Q"+q}</span>
+              <button key={q}
+                onClick={() => {
+                  const items = buildSingleQItem(paper, String(q));
+                  setQViewer({ items, title: "Q" + q + " · " + (paper.name || paper.code || "Paper") });
+                }}
+                style={{
+                  fontSize:11,fontFamily:"monospace",fontWeight:700,
+                  color,background:color+"18",
+                  border:"1px solid "+color+"44",
+                  borderRadius:4,padding:"2px 6px",
+                  cursor:"pointer",
+                }}>{"Q"+q}</button>
             ))}
           </div>
         );
@@ -1598,14 +1884,14 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
                       <div style={{fontSize:11,color:T.text3,marginBottom:4}}>
                         {"Without guessing — "+ngWrong.length+" wrong"}
                       </div>
-                      <QBadges qs={ngWrong} color={T.red} />
+                      <QBadges qs={ngWrong} color={T.red} paper={sp} />
                     </div>
                     {(ffC+ffW+wgC+wgW)>0 && (
                       <div>
                         <div style={{fontSize:11,color:T.text3,marginBottom:4}}>
                           {"By guessing — "+gWrong.length+" wrong"}
                         </div>
-                        <QBadges qs={gWrong} color={T.orange} />
+                        <QBadges qs={gWrong} color={T.orange} paper={sp} />
                       </div>
                     )}
                     {unattemptedQs.length > 0 && (
@@ -1613,7 +1899,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
                         <div style={{fontSize:11,color:T.text3,marginBottom:4}}>
                           {"Unattempted — "+unattemptedQs.length+" questions"}
                         </div>
-                        <QBadges qs={unattemptedQs} color={T.text3} />
+                        <QBadges qs={unattemptedQs} color={T.text3} paper={sp} />
                       </div>
                     )}
                   </div>
@@ -1989,16 +2275,29 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
             Average questions left blank per paper (excluding deleted). Only subjects with avg ≥ 0.5 shown.
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {[...unattempted].sort((a, b) => b.avgUn - a.avgUn).map(s => (
-              <div key={s.id} style={{ display: "grid",
-                gridTemplateColumns: "1fr 1fr 70px", gap: 10, alignItems: "center" }}>
-                <span style={{ fontSize: 12, color: T.text2 }}>{s.name}</span>
-                <Bar value={s.avgUn} max={s.maxMarks} height={8} />
-                <span style={{ fontFamily: "monospace", fontSize: 11, color: T.orange, textAlign: "right" }}>
-                  {s.avgUn.toFixed(1)}/{s.maxMarks}
-                </span>
-              </div>
-            ))}
+            {[...unattempted].sort((a, b) => b.avgUn - a.avgUn).map(s => {
+              const sylSubj = syllabus.subjects.find(ss => ss.id === s.id);
+              return (
+                <div key={s.id}
+                  onClick={() => {
+                    if (sylSubj) {
+                      const items = buildSubjectItems(sylSubj, true);
+                      setQViewer({ items, title: s.name + " — Unattempted Questions" });
+                    }
+                  }}
+                  style={{ display: "grid",
+                    gridTemplateColumns: "1fr 1fr 70px", gap: 10, alignItems: "center",
+                    cursor: sylSubj ? "pointer" : "default",
+                    padding: "4px 6px", borderRadius: 6,
+                  }}>
+                  <span style={{ fontSize: 12, color: T.text2 }}>{s.name}</span>
+                  <Bar value={s.avgUn} max={s.maxMarks} height={8} />
+                  <span style={{ fontFamily: "monospace", fontSize: 11, color: T.orange, textAlign: "right" }}>
+                    {s.avgUn.toFixed(1)}/{s.maxMarks}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </Section>
       )}
@@ -2150,13 +2449,22 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
       </div>
       )} {/* end !selectedPaperId aggregate view */}
 
-      {/* ── Topic Question Viewer ── */}
+      {/* ── Topic Question Viewer (topic performance section) ── */}
       {topicViewer && (
         <TopicQuestionViewer
           topic={topicViewer}
           papers={papers}
           syllabus={syllabus}
           onClose={() => setTopicViewer(null)}
+        />
+      )}
+
+      {/* ── Generic Question List Viewer (badges, subjects, unattempted) ── */}
+      {qViewer && (
+        <QuestionListViewer
+          items={qViewer.items}
+          title={qViewer.title}
+          onClose={() => setQViewer(null)}
         />
       )}
 
@@ -2175,8 +2483,16 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
             <Modal title={title} onClose={() => setExpandModal(null)}>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: "65vh", overflowY: "auto" }}>
                 {sorted.map((s, i) => (
-                  <div key={s.id} style={{ padding: "10px 12px", borderRadius: 8,
-                    background: T.surface, border: "1px solid " + T.border }}>
+                  <div key={s.id}
+                    onClick={() => {
+                      const sylSubj = syllabus.subjects.find(ss => ss.id === s.id);
+                      if (sylSubj) {
+                        const items = buildSubjectItems(sylSubj);
+                        setQViewer({ items, title: s.name + " — All Questions" });
+                      }
+                    }}
+                    style={{ padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                      background: T.surface, border: "1px solid " + T.border }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>
                         {"#" + (i+1) + " " + s.name}
@@ -2199,8 +2515,14 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
             <Modal title={title} onClose={() => setExpandModal(null)}>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "65vh", overflowY: "auto" }}>
                 {sorted.map((t, i) => (
-                  <div key={t.id} style={{ padding: "10px 12px", borderRadius: 8,
-                    background: T.surface, border: "1px solid " + T.border }}>
+                  <div key={t.id}
+                    onClick={() => {
+                      const items = buildTopicItems(t.id);
+                      const lbl = (t.topicNo ? "[" + t.topicNo + "] " : "") + t.name;
+                      setQViewer({ items, title: lbl });
+                    }}
+                    style={{ padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                      background: T.surface, border: "1px solid " + T.border }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ fontSize: 12, color: T.text }}>
