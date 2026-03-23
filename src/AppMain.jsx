@@ -699,13 +699,16 @@ function PapersList({ papers, syllabus, streak, onAdd, onEdit, onDelete, onView 
                 </div>
 
                 {/* ── Row 2: Badges ── */}
-                {(p.bookletCode || p.answerKey || hasContent) && (
+                {(p.bookletCode || p.answerKey || hasContent || p.questions) && (
                   <div style={{ display: "flex", gap: 5, flexWrap: "wrap",
                     marginBottom: 6 }}>
                     {p.bookletCode && (
                       <Badge label={"Booklet " + p.bookletCode} color={T.accent} />
                     )}
                     {p.answerKey && <Badge label="Key ✓" color={T.green} />}
+                    {p.questions && (
+                      <Badge label={"📖 " + Object.keys(p.questions).length + " exp"} color={T.cyan} />
+                    )}
                     {hasContent  && <Badge label="📄 Content" color={T.purple} />}
                   </div>
                 )}

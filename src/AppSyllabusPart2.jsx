@@ -461,106 +461,81 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
         {/* ── CONTENT TAB ── */}
         {tab === "content" && (
           <div>
-            <p style={{ fontSize: 12, color: T.text2, marginBottom: 16, lineHeight: 1.7 }}>
-              Store the question paper text or explanations for later reference.
-              You can paste text, upload a .docx explanation file, or attach a PDF.
-              All three can coexist for the same paper.
-            </p>
+            <input ref={explRef} type="file" accept=".docx" style={{ display: "none" }} onChange={handleExplDocx} />
 
-            {/* Explanation Docx upload — parsed into structured questions */}
-            <div style={{ marginBottom: 20, padding: "12px 16px",
-              background: T.surface, borderRadius: 8,
-              border: "1px solid " + (form.questions ? T.green + "66" : T.border) }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 6 }}>
-                📖 Question Explanations
-              </div>
-              <div style={{ fontSize: 11, color: T.text3, marginBottom: 10, lineHeight: 1.6 }}>
-                Upload the explanation docx generated from Claude AI using the master prompt.
-                The document is parsed and discarded — only the structured question data is stored.
-              </div>
-              <input ref={explRef} type="file" accept=".docx" style={{ display: "none" }} onChange={handleExplDocx} />
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <button onClick={() => explRef.current?.click()}
-                  style={{ ...btnPrimary(T.accent), fontSize: 12 }}>
-                  {form.questions
-                    ? "↺ Re-upload Explanations"
-                    : "⬆ Upload Explanation Docx"}
-                </button>
-                {form.questions && (
-                  <>
-                    <span style={{ fontSize: 11, color: T.green }}>
-                      ✓ {Object.keys(form.questions).length} questions stored
-                    </span>
-                    <button onClick={() => {
+            {form.questions ? (
+              /* ── Has explanations — rich display ── */
+              <div style={{
+                borderRadius: 12, overflow: "hidden",
+                border: "1px solid " + T.green + "55",
+              }}>
+                {/* Green header bar */}
+                <div style={{
+                  background: T.green + "18",
+                  padding: "14px 16px",
+                  borderBottom: "1px solid " + T.green + "33",
+                  display: "flex", alignItems: "center", gap: 10,
+                }}>
+                  <span style={{ fontSize: 22 }}>📖</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: T.green }}>
+                      Explanations Loaded
+                    </div>
+                    <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+                      {Object.keys(form.questions).length} questions stored · docx discarded
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action buttons */}
+                <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  {form.computed && (
+                    <button onClick={() => setShowQViewer(true)}
+                      style={{ ...btnPrimary(T.accent), fontSize: 14, padding: "12px 0",
+                        width: "100%", fontWeight: 700 }}>
+                      👁  View All Questions
+                    </button>
+                  )}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => explRef.current?.click()}
+                      style={{ ...btnGhost, fontSize: 12, flex: 1 }}>
+                      ↺ Re-upload
+                    </button>
+                    <button
+                      onClick={() => {
                         if (window.confirm("Remove all stored question explanations?")) {
                           setForm(f => ({ ...f, questions: null }));
                           setDirty(true);
                         }
                       }}
-                      style={{ ...btnGhost, fontSize: 11, color: T.red, borderColor: T.red + "44" }}>
-                      Remove
+                      style={{ ...btnGhost, fontSize: 12, color: T.red,
+                        borderColor: T.red + "44", flex: 1 }}>
+                      🗑 Remove
                     </button>
-                    {form.computed && (
-                      <button onClick={() => setShowQViewer(true)}
-                        style={{ ...btnPrimary(T.purple), fontSize: 12 }}>
-                        👁 View Questions
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Text editor */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: T.text3, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Paste Text / Explanations
-              </div>
-              <textarea
-                rows={8} value={form.content?.text || ""}
-                onChange={e => setContent("text", e.target.value)}
-                placeholder="Paste question paper text, explanations, or your own notes here..."
-                style={{ ...inputStyle, resize: "vertical", fontSize: 12, lineHeight: 1.7 }}
-              />
-            </div>
-
-            {/* Docx upload */}
-            <div style={{ marginBottom: 16 }}>
-              <input ref={docxRef} type="file" accept=".docx" style={{ display: "none" }} onChange={handleDocx} />
-              <button onClick={() => docxRef.current?.click()} style={btnPrimary(T.purple)}>
-                {form.content?.docxName ? "✓ Replace Docx (" + form.content.docxName + ")" : "Upload Content Docx"}
-              </button>
-              {form.content?.docxName && (
-                <button
-                  onClick={() => { setContent("docxExtracted", ""); setContent("docxName", ""); }}
-                  style={{ ...btnGhost, marginLeft: 8, color: T.red }}
-                >Remove</button>
-              )}
-              {form.content?.docxExtracted && (
-                <div style={{ marginTop: 8, fontSize: 11, color: T.green }}>
-                  ✓ {form.content.docxExtracted.length.toLocaleString()} characters extracted
+                  </div>
                 </div>
-              )}
-            </div>
-
-            {/* PDF upload */}
-            <div>
-              <input ref={pdfRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={handlePDF} />
-              <button onClick={() => pdfRef.current?.click()} style={btnPrimary(T.teal)}>
-                {form.content?.pdfName ? "✓ Replace PDF (" + form.content.pdfName + ")" : "Upload PDF"}
-              </button>
-              {form.content?.pdfName && (
-                <button
-                  onClick={() => { setContent("pdfData", ""); setContent("pdfName", ""); }}
-                  style={{ ...btnGhost, marginLeft: 8, color: T.red }}
-                >Remove</button>
-              )}
-              {form.content?.pdfData && (
-                <div style={{ marginTop: 8, fontSize: 11, color: T.green }}>
-                  ✓ PDF stored ({(form.content.pdfData.length / 1024).toFixed(0)} KB)
+              </div>
+            ) : (
+              /* ── No explanations — upload prompt ── */
+              <div style={{
+                borderRadius: 12, border: "2px dashed " + T.border,
+                padding: "32px 20px", textAlign: "center",
+              }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>📖</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 6 }}>
+                  No Explanations Yet
                 </div>
-              )}
-            </div>
+                <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.7, marginBottom: 20, maxWidth: 280, margin: "0 auto 20px" }}>
+                  Generate an explanation docx using the master prompt and Claude AI,
+                  then upload it here. The file is parsed and discarded — only the
+                  structured data is saved.
+                </div>
+                <button onClick={() => explRef.current?.click()}
+                  style={{ ...btnPrimary(T.accent), fontSize: 14, padding: "12px 24px", fontWeight: 700 }}>
+                  ⬆  Upload Explanation Docx
+                </button>
+              </div>
+            )}
           </div>
         )}
 
