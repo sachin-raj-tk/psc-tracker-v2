@@ -1290,7 +1290,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
     return items;
   };
 
-  const buildSubjectItems = (subject, unattemptedOnly = false) => {
+  const buildSubjectItems = (subject, unattemptedOnly = false, guessOnly = false) => {
     const range = subject.questionRange || {};
     const start = range.start || 1;
     const end   = range.end   || 5;
@@ -1300,16 +1300,18 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
       const pq  = paper.computed?.perQuestion || {};
       const qs  = paper.questions || {};
       for (let q = start; q <= end; q++) {
-        const qStr   = String(q);
+        const qStr    = String(q);
         const hasData = qStr in omr || qStr in pq;
         if (!hasData) continue;
-        const result = pq[qStr]?.result || "unattempted";
+        const result   = pq[qStr]?.result || "unattempted";
+        const isGuessQ = (omr[qStr] || {}).isGuess || false;
         if (unattemptedOnly && result !== "unattempted") continue;
+        if (guessOnly && !isGuessQ) continue;
         items.push({
           paperId: paper.id, paperName: paper.name || paper.code || "Paper",
           qStr, result,
           myAns: (omr[qStr] || {}).answer || "—", keyAns: pq[qStr]?.keyAns || "—",
-          isGuess: (omr[qStr] || {}).isGuess || false,
+          isGuess: isGuessQ,
           text: (qs[qStr] || {}).text || "", options: (qs[qStr] || {}).options || {},
           explanation: (qs[qStr] || {}).explanation || "",
         });
@@ -2127,8 +2129,14 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
                 </thead>
                 <tbody>
                   {subjGuess.map(s => (
-                    <tr key={s.id} style={{ borderBottom: "1px solid " + T.border }}>
-                      <td style={{ padding: "7px 8px", color: T.text2, fontSize: 12 }}>{s.name}</td>
+                    <tr key={s.id}
+                      onClick={() => {
+                        const items = buildSubjectItems(s, false, true);
+                        setQViewer({ items, title: s.name + " — Guesswork Questions" });
+                      }}
+                      style={{ borderBottom: "1px solid " + T.border, cursor: "pointer" }}>
+                      <td style={{ padding: "7px 8px", color: T.accent2, fontSize: 12,
+                        fontWeight: 600 }}>{s.name}</td>
                       <td style={{ padding: "7px 8px", textAlign: "center", color: T.green,  fontFamily: "monospace" }}>{s.fc}</td>
                       <td style={{ padding: "7px 8px", textAlign: "center", color: T.red,    fontFamily: "monospace" }}>{s.fw}</td>
                       <td style={{ padding: "7px 8px", textAlign: "center",
