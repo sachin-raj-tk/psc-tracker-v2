@@ -494,7 +494,7 @@ function Dashboard({ papers, syllabus, streak, logs, onSaveLog, onAddPaper, onNa
                         e.stopPropagation();
                         const rect = e.currentTarget.getBoundingClientRect();
                         setDashTip({ id: p.id, name: p.name || p.code || ("Paper " + (i+1)),
-                          x: rect.left + rect.width / 2, y: rect.top });
+                          sc: sc, x: rect.left + rect.width / 2, y: rect.top });
                         clearTimeout(window.__dashTipTimer);
                         window.__dashTipTimer = setTimeout(() => setDashTip(null), 2000);
                       }}
@@ -526,16 +526,21 @@ function Dashboard({ papers, syllabus, streak, logs, onSaveLog, onAddPaper, onNa
         {dashTip && (
           <div style={{
             position: "fixed",
-            left: Math.min(dashTip.x, window.innerWidth - 170),
-            top: Math.max(dashTip.y - 44, 60),
+            left: Math.min(dashTip.x, window.innerWidth - 190),
+            top: Math.max(dashTip.y - 54, 60),
             transform: "translateX(-50%)",
             background: "#1c2333", border: "1px solid " + T.border,
-            borderRadius: 7, padding: "6px 12px", zIndex: 2000,
+            borderRadius: 7, padding: "7px 12px", zIndex: 2000,
             whiteSpace: "nowrap", fontSize: 12, color: T.text,
             boxShadow: "0 4px 16px rgba(0,0,0,0.7)",
             pointerEvents: "none",
           }}>
-            {dashTip.name}
+            <div style={{ fontWeight: 700, color: scoreColor(pct(dashTip.sc, 100)),
+              fontFamily: "monospace", fontSize: 14, marginBottom: 2 }}>
+              {dashTip.sc.toFixed(2)}<span style={{ fontSize: 10, color: T.text3 }}>/100</span>
+            </div>
+            <div style={{ color: T.text2 }}>{dashTip.name}
+            </div>
           </div>
         )}
       </Section>
@@ -1653,7 +1658,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
                         e.stopPropagation();
                         const rect = e.currentTarget.getBoundingClientRect();
                         setAnalTip({ id: p.id, name: p.name || p.code || ("Paper " + (i+1)),
-                          x: rect.left + rect.width / 2, y: rect.top });
+                          sc: sc, x: rect.left + rect.width / 2, y: rect.top });
                         clearTimeout(window.__analTipTimer);
                         window.__analTipTimer = setTimeout(() => setAnalTip(null), 2000);
                       }}
@@ -1677,16 +1682,21 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
         {analTip && (
           <div style={{
             position: "fixed",
-            left: Math.min(analTip.x, window.innerWidth - 170),
-            top: Math.max(analTip.y - 44, 60),
+            left: Math.min(analTip.x, window.innerWidth - 190),
+            top: Math.max(analTip.y - 54, 60),
             transform: "translateX(-50%)",
             background: "#1c2333", border: "1px solid " + T.border,
-            borderRadius: 7, padding: "6px 12px", zIndex: 2000,
+            borderRadius: 7, padding: "7px 12px", zIndex: 2000,
             whiteSpace: "nowrap", fontSize: 12, color: T.text,
             boxShadow: "0 4px 16px rgba(0,0,0,0.7)",
             pointerEvents: "none",
           }}>
-            {analTip.name}
+            <div style={{ fontWeight: 700, color: scoreColor(pct(analTip.sc, 100)),
+              fontFamily: "monospace", fontSize: 14, marginBottom: 2 }}>
+              {analTip.sc.toFixed(2)}<span style={{ fontSize: 10, color: T.text3 }}>/100</span>
+            </div>
+            <div style={{ color: T.text2 }}>{analTip.name}
+            </div>
           </div>
         )}
       </Section>
