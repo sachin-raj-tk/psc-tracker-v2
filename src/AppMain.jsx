@@ -20,7 +20,7 @@ import {
   guessAccuracy, matchSearch,
   DB, KEYS, DEFAULT_SYLLABUS,
   Bar, Badge, Section, Modal, ToastContainer, useToast,
-  ConfirmDialog,
+  SearchSelect, ConfirmDialog,
 } from "./AppCore";
 
 import {
@@ -30,6 +30,7 @@ import {
 } from "./AppSyllabusPart2";
 
 import { SyllabusImporter } from "./AppSyllabusPart1b";
+import { buildTopicOptions } from "./AppSyllabusPart1a";
 
 import {
   useStudyTracker,
@@ -947,6 +948,20 @@ function TopicQuestionViewer({ topic, papers, syllabus, onClose }) {
             </span>
           </div>
 
+          {/* Topic tag — editable if syllabus + callback provided */}
+          {syllabus && onUpdateTopicTag && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 4,
+                textTransform: "uppercase", letterSpacing: "0.08em" }}>Topic Tag</div>
+              <SearchSelect
+                options={topicOpts}
+                value={item.topicId || null}
+                onChange={topicId => onUpdateTopicTag(item.paperId, item.qStr, topicId)}
+                placeholder="Tag a topic..."
+              />
+            </div>
+          )}
+
           {/* Question text */}
           {item.text ? (
             <div style={{ fontSize: 13, color: T.text, lineHeight: 1.8,
@@ -1030,11 +1045,12 @@ function TopicQuestionViewer({ topic, papers, syllabus, onClose }) {
  *                   isGuess, text, options, explanation }
  * title: string shown in header
  */
-function QuestionListViewer({ items, title, onClose }) {
+function QuestionListViewer({ items, title, syllabus, onUpdateTopicTag, onClose }) {
   const [idx, setIdx] = useState(0);
 
-  const safeIdx = Math.min(idx, Math.max(0, items.length - 1));
-  const item    = items[safeIdx];
+  const safeIdx  = Math.min(idx, Math.max(0, items.length - 1));
+  const item     = items[safeIdx];
+  const topicOpts = syllabus ? buildTopicOptions(syllabus) : [];
 
   const qColor = (r) => {
     if (r === "correct")     return T.green;
@@ -1161,6 +1177,20 @@ function QuestionListViewer({ items, title, onClose }) {
             </span>
           </div>
 
+          {/* Topic tag — editable if syllabus + callback provided */}
+          {syllabus && onUpdateTopicTag && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 4,
+                textTransform: "uppercase", letterSpacing: "0.08em" }}>Topic Tag</div>
+              <SearchSelect
+                options={topicOpts}
+                value={item.topicId || null}
+                onChange={topicId => onUpdateTopicTag(item.paperId, item.qStr, topicId)}
+                placeholder="Tag a topic..."
+              />
+            </div>
+          )}
+
           {/* Question text */}
           {item.text ? (
             <div style={{ fontSize: 13, color: T.text, lineHeight: 1.8,
@@ -1281,6 +1311,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
             qStr, result: pq[qStr]?.result || "unattempted",
             myAns: omr[qStr]?.answer || "—", keyAns: pq[qStr]?.keyAns || "—",
             isGuess: omr[qStr]?.isGuess || false,
+            topicId: (omr[qStr] || {}).topicId || null,
             text: (qs[qStr] || {}).text || "", options: (qs[qStr] || {}).options || {},
             explanation: (qs[qStr] || {}).explanation || "",
           });
@@ -1312,6 +1343,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
           qStr, result,
           myAns: (omr[qStr] || {}).answer || "—", keyAns: pq[qStr]?.keyAns || "—",
           isGuess: isGuessQ,
+          topicId: (omr[qStr] || {}).topicId || null,
           text: (qs[qStr] || {}).text || "", options: (qs[qStr] || {}).options || {},
           explanation: (qs[qStr] || {}).explanation || "",
         });
@@ -1329,6 +1361,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
       qStr, result: pq[qStr]?.result || "unattempted",
       myAns: (omr[qStr] || {}).answer || "—", keyAns: pq[qStr]?.keyAns || "—",
       isGuess: (omr[qStr] || {}).isGuess || false,
+      topicId: (omr[qStr] || {}).topicId || null,
       text: (qs[qStr] || {}).text || "", options: (qs[qStr] || {}).options || {},
       explanation: (qs[qStr] || {}).explanation || "",
     }];
@@ -1346,10 +1379,20 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
   const subjAvg = syllabus.subjects.map(s => {
     const vals = filtered.map(p => p.computed?.bySubject?.[s.id]?.marks || 0);
     const avg  = vals.reduce((a, b) => a + b, 0) / vals.length;
-    // totalQ = all correct + wrong attempts (not deleted/unattempted) across papers
+    // totalQ = all questions in subject range across papers (including unattempted)
+    // matches what buildSubjectItems returns so "from X questions" is consistent
+    const range  = s.questionRange || {};
+    const qStart = range.start || 1;
+    const qEnd   = range.end   || s.maxMarks;
     const totalQ = filtered.reduce((acc, p) => {
-      const bs = p.computed?.bySubject?.[s.id] || {};
-      return acc + (bs.correct || 0) + (bs.wrong || 0);
+      const omr = p.omr || {};
+      const pq  = p.computed?.perQuestion || {};
+      let cnt = 0;
+      for (let q = qStart; q <= qEnd; q++) {
+        const qStr = String(q);
+        if ((qStr in omr || qStr in pq) && pq[qStr]?.result !== "deleted") cnt++;
+      }
+      return acc + cnt;
     }, 0);
     return { ...s, avg, avgPct: pct(avg, s.maxMarks), totalQ };
   });
@@ -2481,6 +2524,19 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
         <QuestionListViewer
           items={qViewer.items}
           title={qViewer.title}
+          syllabus={syllabus}
+          onUpdateTopicTag={(paperId, qStr, topicId) => {
+            // Update omr in the correct paper and persist silently
+            const targetPaper = papers.find(p => p.id === paperId);
+            if (!targetPaper) return;
+            const newOMR = { ...targetPaper.omr };
+            newOMR[qStr] = { ...(newOMR[qStr] || {}), topicId };
+            // Use window.__pscAutoSync for persistence (same pattern as QuestionViewer)
+            const updatedPaper = { ...targetPaper, omr: newOMR };
+            // Dispatch to App via custom event so App can call handleSavePaperSilent
+            window.dispatchEvent(new CustomEvent("psc-topic-tag-update",
+              { detail: { paper: updatedPaper } }));
+          }}
           onClose={() => setQViewer(null)}
         />
       )}
@@ -2778,6 +2834,17 @@ export default function App() {
     };
     window.addEventListener("psc-in-app-reminder", handler);
     return () => window.removeEventListener("psc-in-app-reminder", handler);
+  }, []);
+
+  // Listen for topic tag updates from QuestionListViewer inside Analytics
+  useEffect(() => {
+    const handler = (e) => {
+      const updatedPaper = e.detail?.paper;
+      if (!updatedPaper) return;
+      handleSavePaperSilent(updatedPaper);
+    };
+    window.addEventListener("psc-topic-tag-update", handler);
+    return () => window.removeEventListener("psc-topic-tag-update", handler);
   }, []);
 
   // Listen for SW messages (skip reason trigger from notification)
