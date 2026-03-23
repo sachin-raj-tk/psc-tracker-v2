@@ -1365,9 +1365,12 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
       if (!tid) continue;
       if (!topicStats[tid]) topicStats[tid] = { correct: 0, wrong: 0, total: 0 };
       const result = pq[qStr]?.result;
-      if (result === "correct") { topicStats[tid].correct++; topicStats[tid].total++; }
-      else if (result === "wrong") { topicStats[tid].wrong++; topicStats[tid].total++; }
-      // unattempted/deleted do not count toward total
+      // Count ALL tagged questions toward total (matches viewer count)
+      // Only skip deleted questions from total
+      if (result === "deleted") continue;
+      topicStats[tid].total++;
+      if (result === "correct") topicStats[tid].correct++;
+      else if (result === "wrong") topicStats[tid].wrong++;
     }
   }
 
