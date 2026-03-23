@@ -1354,14 +1354,20 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
     return { ...s, avg, avgPct: pct(avg, s.maxMarks), totalQ };
   });
 
-  // ── 2. Topic performance from OMR tags ────────────────────────────────────
+  // ── 2. Topic performance — computed LIVE from omr tags so changes to topic
+  //    tags are reflected immediately without needing to recalculate score.
   const topicStats = {};
   for (const paper of filtered) {
-    for (const [tid, stats] of Object.entries(paper.computed?.byTopic || {})) {
+    const omr = paper.omr || {};
+    const pq  = paper.computed?.perQuestion || {};
+    for (const [qStr, entry] of Object.entries(omr)) {
+      const tid = entry?.topicId;
+      if (!tid) continue;
       if (!topicStats[tid]) topicStats[tid] = { correct: 0, wrong: 0, total: 0 };
-      topicStats[tid].correct += stats.correct || 0;
-      topicStats[tid].wrong   += stats.wrong   || 0;
-      topicStats[tid].total   += stats.total   || 0;
+      const result = pq[qStr]?.result;
+      if (result === "correct") { topicStats[tid].correct++; topicStats[tid].total++; }
+      else if (result === "wrong") { topicStats[tid].wrong++; topicStats[tid].total++; }
+      // unattempted/deleted do not count toward total
     }
   }
 
