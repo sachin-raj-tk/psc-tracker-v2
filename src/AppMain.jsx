@@ -480,7 +480,8 @@ function Dashboard({ papers, syllabus, streak, logs, onSaveLog, onAddPaper, onNa
           <div>
             <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               <div style={{
-                display: "flex", alignItems: "flex-end", gap: 4, height: 90,
+                display: "flex", alignItems: "flex-end", gap: 4,
+                height: 110, paddingTop: 8,
                 minWidth: sorted.length * 44 + "px",
               }}>
                 {sorted.map((p, i) => {
@@ -767,6 +768,250 @@ function PapersList({ papers, syllabus, streak, onAdd, onEdit, onDelete, onView 
 // ANALYTICS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// TOPIC QUESTION VIEWER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * TopicQuestionViewer — shows all questions tagged to a specific topic
+ * across all papers. Navigable with Prev/Next or by tapping the list.
+ * Reuses the bottom-sheet popup style from QuestionViewer.
+ */
+function TopicQuestionViewer({ topic, papers, syllabus, onClose }) {
+  const [idx, setIdx] = useState(0);
+
+  // Build flat list of all questions tagged to this topic across all papers
+  const items = [];
+  for (const paper of papers) {
+    const omr = paper.omr || {};
+    const pq  = paper.computed?.perQuestion || {};
+    const qs  = paper.questions || {};
+    for (const qStr of Object.keys(omr).sort((a,b) => parseInt(a)-parseInt(b))) {
+      if (omr[qStr]?.topicId === topic.id) {
+        items.push({
+          paperId:     paper.id,
+          paperName:   paper.name || paper.code || "Paper",
+          qStr,
+          result:      pq[qStr]?.result || "unattempted",
+          myAns:       omr[qStr]?.answer || "—",
+          keyAns:      pq[qStr]?.keyAns || "—",
+          isGuess:     omr[qStr]?.isGuess || false,
+          text:        qs[qStr]?.text || "",
+          options:     qs[qStr]?.options || {},
+          explanation: qs[qStr]?.explanation || "",
+        });
+      }
+    }
+  }
+
+  // Clamp idx if items list is shorter than current idx
+  const safeIdx = Math.min(idx, Math.max(0, items.length - 1));
+  const item    = items[safeIdx];
+
+  const qColor = (result) => {
+    if (result === "correct")     return T.green;
+    if (result === "wrong")       return T.red;
+    if (result === "unattempted") return T.text3;
+    if (result === "deleted")     return T.text3;
+    return T.border2;
+  };
+  const qIcon = (result) => {
+    if (result === "correct")     return "✓";
+    if (result === "wrong")       return "✗";
+    if (result === "unattempted") return "—";
+    if (result === "deleted")     return "⊘";
+    return "?";
+  };
+
+  if (items.length === 0) {
+    return (
+      <div style={{
+        position: "fixed", inset: 0, zIndex: 1100,
+        background: "rgba(0,0,0,0.7)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }} onClick={onClose}>
+        <div style={{ background: "#0d1117", borderRadius: 12, padding: 32,
+          border: "1px solid " + T.border, textAlign: "center" }}
+          onClick={e => e.stopPropagation()}>
+          <div style={{ fontSize: 14, color: T.text, marginBottom: 12 }}>
+            No questions tagged to this topic.
+          </div>
+          <button onClick={onClose} style={{ ...btnGhost, fontSize: 13 }}>Close</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 1100,
+      background: "rgba(0,0,0,0.7)",
+      display: "flex", flexDirection: "column",
+    }} onClick={onClose}>
+      <div style={{
+        background: "#0d1117", borderRadius: "16px 16px 0 0",
+        marginTop: "auto", width: "100%", maxWidth: 600, alignSelf: "center",
+        maxHeight: "88vh", display: "flex", flexDirection: "column",
+        border: "1px solid " + T.border,
+        boxShadow: "0 -8px 32px rgba(0,0,0,0.5)",
+      }} onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{
+          padding: "12px 16px 10px",
+          borderBottom: "1px solid " + T.border,
+          flexShrink: 0,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: T.text, lineHeight: 1.3 }}>
+                {topic.topicNo ? "[" + topic.topicNo + "] " : ""}{topic.name}
+              </div>
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>
+                {items.length} question{items.length !== 1 ? "s" : ""} across all papers
+              </div>
+            </div>
+            <button onClick={onClose}
+              style={{ ...btnGhost, padding: "4px 10px", fontSize: 13, flexShrink: 0 }}>✕</button>
+          </div>
+
+          {/* Scrollable question pills */}
+          <div style={{ display: "flex", gap: 5, overflowX: "auto",
+            WebkitOverflowScrolling: "touch", marginTop: 10, paddingBottom: 4 }}>
+            {items.map((it, i) => {
+              const col = qColor(it.result);
+              return (
+                <button key={it.paperId + "_" + it.qStr}
+                  onClick={() => setIdx(i)}
+                  style={{
+                    flexShrink: 0, padding: "3px 9px", borderRadius: 5,
+                    border: "1px solid " + col + (safeIdx === i ? "ff" : "55"),
+                    background: safeIdx === i ? col + "33" : "transparent",
+                    color: col, fontSize: 11, fontWeight: safeIdx === i ? 700 : 400,
+                    cursor: "pointer",
+                  }}>
+                  Q{it.qStr}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ overflowY: "auto", padding: "14px 16px", flex: 1 }}>
+
+          {/* Paper + result badge */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center",
+            flexWrap: "wrap", marginBottom: 12 }}>
+            <span style={{ fontSize: 11, color: T.text3, background: T.surface,
+              border: "1px solid " + T.border, borderRadius: 5, padding: "2px 8px" }}>
+              Q{item.qStr} · {item.paperName}
+            </span>
+            <span style={{
+              fontSize: 12, fontWeight: 700, color: qColor(item.result),
+              background: qColor(item.result) + "22",
+              border: "1px solid " + qColor(item.result) + "44",
+              borderRadius: 5, padding: "2px 8px",
+            }}>
+              {qIcon(item.result)} {item.result}
+            </span>
+            {item.isGuess && (
+              <span style={{ fontSize: 11, color: T.orange,
+                background: T.orange + "22", border: "1px solid " + T.orange + "44",
+                borderRadius: 5, padding: "2px 8px" }}>
+                🎲 Guess
+              </span>
+            )}
+          </div>
+
+          {/* My answer vs correct */}
+          <div style={{ display: "flex", gap: 16, marginBottom: 12, fontSize: 12 }}>
+            <span>
+              <span style={{ color: T.text3 }}>My answer: </span>
+              <strong style={{ fontFamily: "monospace",
+                color: item.result === "correct" ? T.green : T.red }}>
+                {item.myAns}
+              </strong>
+            </span>
+            <span>
+              <span style={{ color: T.text3 }}>Correct: </span>
+              <strong style={{ fontFamily: "monospace", color: T.green }}>{item.keyAns}</strong>
+            </span>
+          </div>
+
+          {/* Question text */}
+          {item.text ? (
+            <div style={{ fontSize: 13, color: T.text, lineHeight: 1.8,
+              background: T.surface, borderRadius: 6, padding: "10px 12px",
+              border: "1px solid " + T.border, marginBottom: 12, whiteSpace: "pre-wrap" }}>
+              {item.text}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: T.text3, fontStyle: "italic",
+              marginBottom: 12 }}>No question text stored.</div>
+          )}
+
+          {/* Options */}
+          {Object.keys(item.options).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 12 }}>
+              {["A","B","C","D"].filter(opt => item.options[opt]).map(opt => {
+                const isMyAns   = item.myAns === opt;
+                const isCorrect = item.keyAns === opt;
+                const bg  = isCorrect ? T.green + "22" : isMyAns ? T.red + "22" : "transparent";
+                const bdr = isCorrect ? T.green + "88" : isMyAns ? T.red + "88" : T.border;
+                const col = isCorrect ? T.green : isMyAns ? T.red : T.text2;
+                return (
+                  <div key={opt} style={{ display: "flex", gap: 8, alignItems: "flex-start",
+                    padding: "7px 10px", borderRadius: 6,
+                    background: bg, border: "1px solid " + bdr }}>
+                    <span style={{ fontWeight: 700, fontFamily: "monospace",
+                      color: col, minWidth: 18, flexShrink: 0 }}>{opt}.</span>
+                    <span style={{ fontSize: 13, color: col, lineHeight: 1.5, flex: 1 }}>
+                      {item.options[opt]}
+                    </span>
+                    {isCorrect && <span style={{ color: T.green, fontSize: 11, flexShrink: 0 }}>✓</span>}
+                    {isMyAns && !isCorrect && <span style={{ color: T.red, fontSize: 11, flexShrink: 0 }}>←</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Explanation */}
+          <div style={{ fontSize: 11, color: T.text3, textTransform: "uppercase",
+            letterSpacing: "0.08em", marginBottom: 6 }}>Explanation</div>
+          <div style={{ fontSize: 13, color: T.text2, lineHeight: 1.8,
+            background: T.surface, borderRadius: 6, padding: "10px 12px",
+            border: "1px solid " + T.border, whiteSpace: "pre-wrap" }}>
+            {item.explanation ||
+              <span style={{ color: T.text3, fontStyle: "italic" }}>No explanation stored.</span>}
+          </div>
+
+          {/* Prev / Next */}
+          <div style={{ display: "flex", gap: 10, justifyContent: "center",
+            alignItems: "center", paddingTop: 16 }}>
+            <button onClick={() => setIdx(i => Math.max(0, i - 1))}
+              disabled={safeIdx <= 0}
+              style={{ ...btnGhost, fontSize: 13, padding: "8px 20px",
+                opacity: safeIdx <= 0 ? 0.4 : 1 }}>
+              ← Prev
+            </button>
+            <span style={{ fontSize: 11, color: T.text3 }}>
+              {safeIdx + 1} / {items.length}
+            </span>
+            <button onClick={() => setIdx(i => Math.min(items.length - 1, i + 1))}
+              disabled={safeIdx >= items.length - 1}
+              style={{ ...btnGhost, fontSize: 13, padding: "8px 20px",
+                opacity: safeIdx >= items.length - 1 ? 0.4 : 1 }}>
+              Next →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Analytics — full analytics view.
  * Subject averages, weak/strong split, guess strategy,
@@ -776,6 +1021,7 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
   const [dateFrom,    setDateFrom]    = useState("");
   const [dateTo,      setDateTo]      = useState("");
   const [analTip,     setAnalTip]     = useState(null);
+  const [topicViewer, setTopicViewer] = useState(null); // topic object to drill into
   const [editCutoff,  setEditCutoff]  = useState(false);
   const [cutoffInput, setCutoffInput] = useState(cutoff || "");
   const [analyticsSylId, setAnalyticsSylId] = useState(_syllabus.id);
@@ -1836,10 +2082,16 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {subjTopics.map(t => (
-                      <div key={t.id} style={{ display: "grid",
-                        gridTemplateColumns: "1fr auto auto", gap: 10, alignItems: "center",
-                        padding: "6px 10px", borderRadius: 6,
-                        background: T.surface, border: "1px solid " + T.border }}>
+                      <div key={t.id}
+                        onClick={() => setTopicViewer(t)}
+                        style={{ display: "grid",
+                          gridTemplateColumns: "1fr auto auto", gap: 10, alignItems: "center",
+                          padding: "6px 10px", borderRadius: 6, cursor: "pointer",
+                          background: T.surface, border: "1px solid " + T.border,
+                          transition: "border-color 0.15s",
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = T.cyan + "88"}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
                         <span style={{ fontSize: 12, color: T.text2, minWidth: 0 }}>
                           {t.topicNo
                             ? <span style={{ fontSize: 10, color: T.text3,
@@ -1884,6 +2136,16 @@ function Analytics({ papers: _papers, syllabus: _syllabus, cutoff, onSetCutoff, 
 
       </div>
       )} {/* end !selectedPaperId aggregate view */}
+
+      {/* ── Topic Question Viewer ── */}
+      {topicViewer && (
+        <TopicQuestionViewer
+          topic={topicViewer}
+          papers={papers}
+          syllabus={syllabus}
+          onClose={() => setTopicViewer(null)}
+        />
+      )}
 
       {/* ── Expand Modals for Weak/Strong cards ── */}
       {expandModal && (() => {
