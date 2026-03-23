@@ -218,6 +218,9 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
           </div>
         )}
 
+        {/* Hidden file inputs — always mounted so refs are always valid */}
+        <input ref={explRef} type="file" accept=".docx" style={{ display: "none" }} onChange={handleExplDocx} />
+
         {/* Tab bar */}
         <div style={{ borderBottom: `1px solid ${T.border}`, marginBottom: 16, display: "flex", overflowX: "auto" }}>
           {[
@@ -461,8 +464,6 @@ export function PaperForm({ syllabus, syllabi, onChangeSyllabus, initial, onSave
         {/* ── CONTENT TAB ── */}
         {tab === "content" && (
           <div>
-            <input ref={explRef} type="file" accept=".docx" style={{ display: "none" }} onChange={handleExplDocx} />
-
             {form.questions ? (
               /* ── Has explanations — rich display ── */
               <div style={{
