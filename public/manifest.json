@@ -52,12 +52,13 @@
       "purpose": "any maskable"
     }
   ],
+  "id": "psc-tracker-app",
   "start_url": ".",
   "display": "standalone",
   "orientation": "any",
   "theme_color": "#0d1117",
   "background_color": "#07090f",
-  "scope": "/",
+  "scope": ".",
   "categories": [
     "education",
     "productivity"
